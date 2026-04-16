@@ -1,0 +1,30 @@
+// roles.js
+// ─────────────────────────────────────────────────────────────────────────────
+// SINGLE SOURCE OF TRUTH for role-based tab access.
+// To give a role access to a new tab → just add the tab id here.
+// To add a new role → add one new key with its allowed tab ids.
+// Nothing else in the codebase needs to change.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const ROLES = {
+  ADMIN:              "admin",
+  PRODUCT_MANAGER:    "product_manager",
+  ORDER_MANAGER:      "order_manager",
+  MARKETING_MANAGER:  "marketing_manager",
+  // User: "user",
+};
+
+export const ROLE_PERMISSIONS = {
+  [ROLES.ADMIN]:             ["products", "analytics", "archived", "seoanalysis","customers","staff","demo", "orders","support","orders","outofstock","customerreview","website","ecommerce","marketing","settings","utilities"],
+  [ROLES.PRODUCT_MANAGER]:   ["products", "archived"],
+  [ROLES.ORDER_MANAGER]:     ["orders"],
+  [ROLES.MARKETING_MANAGER]: ["analytics"],
+  // [ROLES.User]: ["user"],
+};
+
+export const ROLE_LABELS = {
+  [ROLES.ADMIN]:             "Super Admin",
+  [ROLES.PRODUCT_MANAGER]:   "Product Manager",
+  [ROLES.ORDER_MANAGER]:     "Order Manager",
+  [ROLES.MARKETING_MANAGER]: "Marketing Manager",
+};    
