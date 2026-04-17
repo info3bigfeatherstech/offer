@@ -1,6 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
+ import React, { useEffect, useMemo, useState } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
-import { X, ShoppingBag, Trash2, Plus, Minus, ArrowRight, RefreshCw, AlertCircle, Star } from 'lucide-react';
+import {
+  X, ShoppingBag, Trash2, Plus, Minus, ArrowRight,
+  RefreshCw, AlertCircle, Star, MapPin, CheckCircle2,
+  XCircle, Loader2, Truck,
+} from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import {
@@ -13,45 +17,183 @@ import {
   selectCartItems,
   selectCartGuestItems,
   selectCartTotalAmount,
-  selectCartTotalItems,
   selectCartLoading,
   selectCartError,
   selectDisplayCartCount,
-} from "../../components/REDUX_FEATURES/REDUX_SLICES/userCartSlice";
-import { current } from '@reduxjs/toolkit';
+} from '../../components/REDUX_FEATURES/REDUX_SLICES/userCartSlice';
+
+import {
+  checkDelivery,
+  selectDelivery,
+  selectCheckoutLoading,
+  selectCheckoutError,
+} from '../../components/REDUX_FEATURES/REDUX_SLICES/checkoutSlice/checkoutSlice';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 const fmt = (n) => {
-  if (n == null) return "—";
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
+  if (n == null) return '—';
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
     maximumFractionDigits: 0,
   }).format(n);
 };
 
 const logError = (context, error, info = {}) => {
   console.group(`🔴 [CartSidebar] ERROR in ${context}`);
-  console.error("Error:", error);
-  console.log("Info:", info);
+  console.error('Error:', error);
+  console.log('Info:', info);
   console.groupEnd();
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GuestCartItem — minimal display for guest (only has productSlug, no product data)
-// Same pattern as wishlist's GuestItem
+// DeliverySection — shown in sidebar footer above subtotal
+//
+// Logic:
+//   - Logged-in + has saved address pincode  → auto-check + show estimated date
+//   - Logged-in + no saved address           → show compact pincode input
+//   - Guest                                  → show compact pincode input
+// ─────────────────────────────────────────────────────────────────────────────
+const DeliverySection = ({ isLoggedIn, userPincode }) => {
+  const dispatch        = useDispatch();
+  const delivery        = useSelector(selectDelivery);
+  const checkoutLoading = useSelector(selectCheckoutLoading);
+  const checkoutError   = useSelector(selectCheckoutError);
+
+  const [pincode, setPincode]         = useState(userPincode || '');
+  const hasAutoChecked                = React.useRef(false);
+
+  // Auto-check if user has a saved pincode
+  useEffect(() => {
+    if (
+      userPincode &&
+      /^\d{6}$/.test(userPincode) &&
+      !hasAutoChecked.current
+    ) {
+      hasAutoChecked.current = true;
+      setPincode(userPincode);
+      dispatch(checkDelivery({ pincode: userPincode }));
+    }
+  }, [userPincode, dispatch]);
+
+  const handleCheck = () => {
+    if (!/^\d{6}$/.test(pincode)) return;
+    dispatch(checkDelivery({ pincode }));
+  };
+
+  const isChecking = checkoutLoading?.delivery;
+  const hasResult  = delivery.isDeliverable !== null && delivery.checkedPincode === pincode;
+
+  return (
+    <div className="flex flex-col gap-2">
+
+      {/* ── If user has address: show delivery status banner ── */}
+      {isLoggedIn && userPincode && hasResult ? (
+        <div
+          className={`flex items-start gap-2.5 rounded-xl px-3.5 py-2.5 border ${
+            delivery.isDeliverable
+              ? 'bg-green-50 border-green-100'
+              : 'bg-red-50 border-red-100'
+          }`}
+        >
+          {delivery.isDeliverable ? (
+            <>
+              <Truck size={14} className="text-green-500 mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="text-[11px] font-black text-green-800">
+                  Delivery to <span className="text-green-600">{delivery.checkedPincode}</span>
+                </p>
+                {delivery.estimatedDays && (
+                  <p className="text-[10px] text-green-600 font-bold mt-0.5">
+                    Arrives in{' '}
+                    <span className="font-black">{delivery.estimatedDays} business days</span>
+                    {delivery.courierName ? ` via ${delivery.courierName}` : ''}
+                  </p>
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              <XCircle size={14} className="text-red-400 mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="text-[11px] font-black text-red-700">
+                  Not deliverable to {delivery.checkedPincode}
+                </p>
+                <p className="text-[10px] text-red-500 font-medium mt-0.5">
+                  {delivery.message || "We don't deliver to this pincode yet"}
+                </p>
+              </div>
+            </>
+          )}
+        </div>
+
+      ) : (
+        /* ── No address or guest: compact pincode input ── */
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 bg-gray-50 border border-gray-200 rounded-full px-3 py-2 flex-1">
+            <MapPin size={12} className="text-gray-400 flex-shrink-0" />
+            <input
+              type="text"
+              value={pincode}
+              onChange={(e) => setPincode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              onKeyDown={(e) => e.key === 'Enter' && handleCheck()}
+              placeholder="Enter pincode"
+              className="bg-transparent text-xs font-bold outline-none w-full placeholder-gray-400"
+              maxLength={6}
+            />
+          </div>
+
+          <button
+            onClick={handleCheck}
+            disabled={pincode.length !== 6 || isChecking}
+            className="text-xs font-black uppercase tracking-widest text-[#F7A221] hover:text-black disabled:opacity-40 transition-colors cursor-pointer flex-shrink-0"
+          >
+            {isChecking
+              ? <Loader2 size={12} className="animate-spin" />
+              : 'Check'
+            }
+          </button>
+
+          {/* Inline result pill */}
+          {hasResult && (
+            delivery.isDeliverable ? (
+              <div className="flex items-center gap-1 text-green-600 flex-shrink-0">
+                <CheckCircle2 size={13} />
+                <span className="text-[11px] font-black whitespace-nowrap">
+                  {delivery.estimatedDays ? `${delivery.estimatedDays}d` : '✓'}
+                </span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1 text-red-500 flex-shrink-0">
+                <XCircle size={13} />
+                <span className="text-[11px] font-black whitespace-nowrap">N/A</span>
+              </div>
+            )
+          )}
+        </div>
+      )}
+
+      {/* API error */}
+      {checkoutError?.delivery && (
+        <p className="text-[10px] text-red-500 font-bold flex items-center gap-1">
+          <XCircle size={11} /> {checkoutError.delivery.message}
+        </p>
+      )}
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GuestCartItem — minimal display for guest (no populated product data)
 // ─────────────────────────────────────────────────────────────────────────────
 const GuestCartItem = ({ item, onRemove, onUpdateQty, isUpdating, isRemoving }) => {
-  // Guest cart item structure: { productSlug, variantId, quantity, price? }
   const productSlug = item.productSlug || item._productSlug;
-  const qty = item.quantity || 1;
-  
-  // Format product name from slug (replace hyphens with spaces)
+  const qty         = item.quantity || 1;
   const displayName = productSlug?.replace(/-/g, ' ') || 'Product';
-  const price = item.price || null;
-  const itemTotal = price != null ? price * qty : null;
+  const price       = item.price || null;
+  const itemTotal   = price != null ? price * qty : null;
 
   return (
     <div className="flex gap-4 group py-2">
@@ -73,12 +215,9 @@ const GuestCartItem = ({ item, onRemove, onUpdateQty, isUpdating, isRemoving }) 
               </p>
             )}
           </div>
-          
-          {/* Sign in message - same as wishlist */}
           <p className="text-[10px] text-gray-400 mt-1 font-medium">
             Sign in to see full details
           </p>
-          
           {price != null && (
             <p className="mt-0.5 text-xs text-gray-400">
               {fmt(price)} × {qty}
@@ -87,7 +226,6 @@ const GuestCartItem = ({ item, onRemove, onUpdateQty, isUpdating, isRemoving }) 
         </div>
 
         <div className="flex items-center justify-between mt-2">
-          {/* Qty controls - still functional for guest */}
           <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden">
             <button
               onClick={() => onUpdateQty(item, qty - 1)}
@@ -98,7 +236,7 @@ const GuestCartItem = ({ item, onRemove, onUpdateQty, isUpdating, isRemoving }) 
               <Minus size={13} />
             </button>
             <span className="px-3 text-xs font-bold min-w-[2rem] text-center">
-              {isUpdating ? "…" : qty}
+              {isUpdating ? '…' : qty}
             </span>
             <button
               onClick={() => onUpdateQty(item, qty + 1)}
@@ -110,18 +248,16 @@ const GuestCartItem = ({ item, onRemove, onUpdateQty, isUpdating, isRemoving }) 
             </button>
           </div>
 
-          {/* Remove button - still functional for guest */}
           <button
             onClick={() => onRemove(item)}
             disabled={isRemoving}
             className="text-gray-300 hover:text-red-500 transition-colors p-1 disabled:opacity-40"
             aria-label="Remove item"
           >
-            {isRemoving ? (
-              <RefreshCw size={16} className="animate-spin" />
-            ) : (
-              <Trash2 size={16} />
-            )}
+            {isRemoving
+              ? <RefreshCw size={16} className="animate-spin" />
+              : <Trash2 size={16} />
+            }
           </button>
         </div>
       </div>
@@ -130,36 +266,34 @@ const GuestCartItem = ({ item, onRemove, onUpdateQty, isUpdating, isRemoving }) 
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CartItem — extracts data correctly from both logged-in and guest item shapes
-// (This remains for logged-in users)
+// CartItem — for logged-in users
+// ✅ API returns item.product as the populated object (NOT item.productId)
+//    item.productId is always a plain string ID from the backend
 // ─────────────────────────────────────────────────────────────────────────────
-const CartItem = ({ item, isLoggedIn, onUpdateQty, onRemove, isUpdating, isRemoving }) => {
+const CartItem = ({ item, onUpdateQty, onRemove, isUpdating, isRemoving }) => {
 
-  const isPopulated = typeof item.productId === "object" && item.productId !== null;
+  // ✅ FIX: Backend populates product data under item.product
+  const product = item.product ?? null;
 
-  // ── Find the specific variant that was added ──────────────────────────────
-  // API: item.variantId matches item.productId.variants[]._id
-  const matchedVariant = isPopulated
-    ? (item.product.variants?.find(
+  // ✅ FIX: Find matched variant from item.product.variants
+  const matchedVariant = product
+    ? (product.variants?.find(
         (v) => String(v._id) === String(item.variantId)
-      ) ?? item.product.variants?.[0] ?? null)
+      ) ?? product.variants?.[0] ?? null)
     : null;
 
-  // Name — title first ("Studio Light - Red Edition"), fallback to name
-  const name = isPopulated
-    ? (item.product.name || item.productId.name)
-    : (item.name || item.product.slug || "Product");
+  // ✅ FIX: Use item.product.title first, fallback to item.product.name
+  const name = product
+    ? (product.title || product.name)
+    : (item._productSlug?.replace(/-/g, ' ') || 'Product');
 
-  // Image — from the MATCHED variant images[], not product-level
-  // API: item.productId.variants[matched].images[0].url
+  // ✅ FIX: Image from matched variant inside item.product.variants
   const image =
     matchedVariant?.images?.[0]?.url ||
-    item.product?.variants?.[0]?.images?.[0]?.url ||
-    item.image ||
+    product?.variants?.[0]?.images?.[0]?.url ||
     null;
 
-  // Price — from priceSnapshot (backend attaches this per cart item)
-  // priceSnapshot = { base, sale }
+  // ✅ FIX: Price from item.price (cart-level price snapshot from backend)
   const price =
     item.price?.sale ??
     item.price?.base ??
@@ -168,14 +302,16 @@ const CartItem = ({ item, isLoggedIn, onUpdateQty, onRemove, isUpdating, isRemov
     matchedVariant?.price?.base ??
     null;
 
-  // Variant attributes for display (Color: Red etc)
+  const basePrice   = item.price?.base ?? null;
+  const discountPct = item.price?.discountPercentage ?? 0;
+
+  // ✅ FIX: Brand from item.product.brand
+  const brand = product?.brand || null;
+
+  // Variant attributes for display
   const variantAttrs = item.variantAttributesSnapshot ?? matchedVariant?.attributes ?? [];
 
-  // Category — API returns category as plain string ID (not populated)
-  // Use brand as display label instead
-  const category = item.product?.brand || null;
-
-  const qty = item.quantity || 1;
+  const qty       = item.quantity || 1;
   const itemTotal = price != null ? price * qty : null;
 
   return (
@@ -188,8 +324,8 @@ const CartItem = ({ item, isLoggedIn, onUpdateQty, onRemove, isUpdating, isRemov
             alt={name}
             className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
             onError={(e) => {
-              e.target.style.display = "none";
-              logError("CartItem img", new Error("Image load failed"), { name, image });
+              e.target.style.display = 'none';
+              logError('CartItem img load failed', new Error('Image load failed'), { name, image });
             }}
           />
         ) : (
@@ -200,7 +336,7 @@ const CartItem = ({ item, isLoggedIn, onUpdateQty, onRemove, isUpdating, isRemov
       </div>
 
       {/* Details */}
-      <div className="flex flex-1 cursor-pointer flex-col justify-between py-1 min-w-0">
+      <div className="flex flex-1 flex-col justify-between py-1 min-w-0">
         <div>
           <div className="flex justify-between items-start gap-2">
             <h3 className="text-sm font-bold text-gray-900 line-clamp-1 uppercase tracking-tight flex-1">
@@ -212,24 +348,36 @@ const CartItem = ({ item, isLoggedIn, onUpdateQty, onRemove, isUpdating, isRemov
               </p>
             )}
           </div>
-          {/* Brand + variant attributes (Color: Red etc) */}
+
+          {/* Brand + variant attributes */}
           <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
-            {category && (
+            {brand && (
               <span className="text-[10px] text-gray-400 uppercase font-medium tracking-wider">
-                {category}
+                {brand}
               </span>
             )}
             {variantAttrs.map((a) => (
-              <span key={a._id || a.key} className="text-[10px] text-gray-400 uppercase font-medium tracking-wider">
+              <span
+                key={a._id || a.key}
+                className="text-[10px] text-gray-400 uppercase font-medium tracking-wider"
+              >
                 · {a.key}: {a.value}
               </span>
             ))}
           </div>
-          {price != null && (
-            <p className="mt-0.5 text-xs text-gray-400">
-              {fmt(price)} × {qty}
-            </p>
-          )}
+
+          {/* Price line */}
+          <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+            {price != null && (
+              <p className="text-xs text-gray-400">{fmt(price)} × {qty}</p>
+            )}
+            {basePrice && basePrice !== price && (
+              <span className="text-[10px] text-gray-400 line-through">{fmt(basePrice)}</span>
+            )}
+            {discountPct > 0 && (
+              <span className="text-[10px] text-green-500 font-semibold">{discountPct}% OFF</span>
+            )}
+          </div>
         </div>
 
         <div className="flex items-center justify-between mt-2">
@@ -244,7 +392,7 @@ const CartItem = ({ item, isLoggedIn, onUpdateQty, onRemove, isUpdating, isRemov
               <Minus size={13} />
             </button>
             <span className="px-3 text-xs font-bold min-w-[2rem] text-center">
-              {isUpdating ? "…" : qty}
+              {isUpdating ? '…' : qty}
             </span>
             <button
               onClick={() => onUpdateQty(item, qty + 1)}
@@ -260,14 +408,13 @@ const CartItem = ({ item, isLoggedIn, onUpdateQty, onRemove, isUpdating, isRemov
           <button
             onClick={() => onRemove(item)}
             disabled={isRemoving}
-            className=" text-red-400 hover:text-red-500 transition-colors p-1 disabled:opacity-40"
+            className="text-gray-300 hover:text-red-500 transition-colors p-1 disabled:opacity-40"
             aria-label="Remove item"
           >
-            {isRemoving ? (
-              <RefreshCw size={16} className="animate-spin" />
-            ) : (
-              <Trash2 size={16} />
-            )}
+            {isRemoving
+              ? <RefreshCw size={16} className="animate-spin" />
+              : <Trash2 size={16} />
+            }
           </button>
         </div>
       </div>
@@ -276,7 +423,7 @@ const CartItem = ({ item, isLoggedIn, onUpdateQty, onRemove, isUpdating, isRemov
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CartSidebar
+// CartSidebar — Main Component
 // ─────────────────────────────────────────────────────────────────────────────
 const CartSidebar = ({ isOpen, onClose, onOpenAuth, user }) => {
   const dispatch = useDispatch();
@@ -284,8 +431,6 @@ const CartSidebar = ({ isOpen, onClose, onOpenAuth, user }) => {
 
   // ── Selectors ─────────────────────────────────────────────────────────────
   const items       = useSelector(selectCartItems);
-  console.log("items", items);
-  
   const guestItems  = useSelector(selectCartGuestItems);
   const totalAmount = useSelector(selectCartTotalAmount);
   const totalItems  = useSelector(selectDisplayCartCount);
@@ -293,7 +438,7 @@ const CartSidebar = ({ isOpen, onClose, onOpenAuth, user }) => {
   const error       = useSelector(selectCartError);
   const { isLoggedIn } = useSelector((state) => state.auth);
 
-  // Per-item loading state for guest items
+  // Per-item loading state
   const [itemLoading, setItemLoading] = useState({});
 
   const setItemState = (itemId, key, val) =>
@@ -303,33 +448,40 @@ const CartSidebar = ({ isOpen, onClose, onOpenAuth, user }) => {
     }));
 
   // ── Which items to show ────────────────────────────────────────────────────
-  const currentItems = isLoggedIn ? items : guestItems;  
+  const currentItems = isLoggedIn ? items : guestItems;
 
-  // ── Computed subtotal for guest cart (slice doesn't compute it) ────────────
+  // ── Computed subtotal for guest cart ──────────────────────────────────────
   const subtotal = useMemo(() => {
     if (isLoggedIn) return totalAmount;
-    // Guest items may have price attached when you call addGuestCartItem
     return guestItems.reduce((sum, item) => {
       const price = item.price ?? 0;
       return sum + price * (item.quantity || 1);
     }, 0);
   }, [isLoggedIn, totalAmount, guestItems]);
 
-  // ── Fetch cart when sidebar opens (logged in only) ─────────────────────────
+  // ── Extract user's saved pincode for delivery auto-check ──────────────────
+  // user.addresses is typically an array; pick the default/first address
+  const userPincode = useMemo(() => {
+    if (!isLoggedIn || !user) return '';
+    const addresses = user.addresses || [];
+    const defaultAddr = addresses.find((a) => a.isDefault) || addresses[0];
+    return defaultAddr?.pincode || defaultAddr?.zip || '';
+  }, [isLoggedIn, user]);
+
+  // ── Fetch cart when sidebar opens (logged-in only) ─────────────────────────
   useEffect(() => {
     if (isOpen && isLoggedIn) {
-      console.log("🛒 [CartSidebar] opened — refreshing cart from DB");
       dispatch(fetchCart())
         .unwrap()
-        .then(() => console.log("✅ [CartSidebar] cart refreshed"))
-        .catch((e) => logError("fetchCart on open", e));
+        .then(() => console.log('✅ [CartSidebar] cart refreshed'))
+        .catch((e) => logError('fetchCart on open', e));
     }
   }, [isOpen, isLoggedIn, dispatch]);
 
   // ── Body scroll lock ───────────────────────────────────────────────────────
   useEffect(() => {
-    document.body.style.overflow = isOpen ? "hidden" : "unset";
-    return () => { document.body.style.overflow = "unset"; };
+    document.body.style.overflow = isOpen ? 'hidden' : 'unset';
+    return () => { document.body.style.overflow = 'unset'; };
   }, [isOpen]);
 
   // ── Clear errors when closing ──────────────────────────────────────────────
@@ -337,79 +489,89 @@ const CartSidebar = ({ isOpen, onClose, onOpenAuth, user }) => {
     if (!isOpen) dispatch(clearCartErrors());
   }, [isOpen, dispatch]);
 
+  // ── Helper: stable item ID for loading state tracking ─────────────────────
+  // ✅ FIX: Use item.product?.slug (not item.productId which is a string)
+  const getItemId = (item) =>
+    item._id || `${item.product?.slug || item._productSlug || item.productSlug}-${item.variantId}`;
+
   // ── Handlers ──────────────────────────────────────────────────────────────
   const handleUpdateQty = async (item, newQty) => {
-  if (newQty < 1) return;
-  const itemId = item._id || `${item.productId?.slug || item._productSlug}-${item.variantId}`;
+    if (newQty < 1) {
+      await handleRemove(item);
+      return;
+    }
+    const itemId = getItemId(item);
 
-  if (isLoggedIn) {
-    setItemState(itemId, 'updating', true);
-    try {
-      await dispatch(updateCartItem({
-        productId:   item.productId?._id || item.productId,  // ✅
-        variantId:   item.variantId,
+    if (isLoggedIn) {
+      setItemState(itemId, 'updating', true);
+      try {
+        // ✅ FIX: item.productId is the plain string ID from backend
+        await dispatch(updateCartItem({
+          productId:   String(item.productId),
+          variantId:   String(item.variantId),
+          quantity:    newQty,
+          productSlug: item.product?.slug || item._productSlug,
+        })).unwrap();
+      } catch (e) {
+        logError('updateCartItem', e, { newQty, itemId });
+      } finally {
+        setItemState(itemId, 'updating', false);
+      }
+    } else {
+      setItemState(itemId, 'updating', true);
+      dispatch(updateGuestCartItem({
+        productSlug: item.productSlug || item._productSlug,
+        variantId:   String(item.variantId),
         quantity:    newQty,
-        productSlug: item.product?.slug || item._productSlug, // ✅
-      })).unwrap();
-    } catch (e) {
-      logError("updateCartItem", e, { newQty });
-    } finally {
-      setItemState(itemId, 'updating', false);
+      }));
+      setTimeout(() => setItemState(itemId, 'updating', false), 100);
     }
-  } else {
-    setItemState(itemId, 'updating', true);
-    dispatch(updateGuestCartItem({
-      productSlug: item.productId?.slug || item.productSlug, // ✅
-      variantId:   item.variantId,
-      quantity:    newQty,
-    }));
-    setTimeout(() => setItemState(itemId, 'updating', false), 100);
-  }
-};
+  };
 
-const handleRemove = async (item) => {
-  const itemId = item._id || `${item.productId?.slug || item._productSlug}-${item.variantId}`;
+  const handleRemove = async (item) => {
+    const itemId = getItemId(item);
 
-  if (isLoggedIn) {
-    setItemState(itemId, 'removing', true);
-    try {
-      await dispatch(removeCartItem({
-        productId:   item.productId?._id || item.productId,  // ✅
-        variantId:   item.variantId,
-        productSlug: item.productId?.slug || item._productSlug, // ✅
-      })).unwrap();
-    } catch (e) {
-      logError("removeCartItem", e);
-    } finally {
-      setItemState(itemId, 'removing', false);
+    if (isLoggedIn) {
+      setItemState(itemId, 'removing', true);
+      try {
+        // ✅ FIX: item.productId is the plain string ID from backend
+        await dispatch(removeCartItem({
+          productId:   String(item.productId),
+          variantId:   String(item.variantId),
+          productSlug: item.product?.slug || item._productSlug,
+        })).unwrap();
+      } catch (e) {
+        logError('removeCartItem', e, { itemId });
+      } finally {
+        setItemState(itemId, 'removing', false);
+      }
+    } else {
+      setItemState(itemId, 'removing', true);
+      dispatch(removeGuestCartItem({
+        productSlug: item.productSlug || item._productSlug,
+        variantId:   String(item.variantId),
+      }));
+      setTimeout(() => setItemState(itemId, 'removing', false), 100);
     }
-  } else {
-    setItemState(itemId, 'removing', true);
-    dispatch(removeGuestCartItem({
-      productSlug: item.productId?.slug || item.productSlug, // ✅
-      variantId:   item.variantId,
-    }));
-    setTimeout(() => setItemState(itemId, 'removing', false), 100);
-  }
-};
+  };
+
+  // ── Get loading state for an item ─────────────────────────────────────────
+  const getItemLoading = (item) => {
+    const itemId = getItemId(item);           // ✅ FIX: uses getItemId, not ad-hoc string
+    return itemLoading[itemId] || { updating: false, removing: false };
+  };
 
   const isFetching  = loading.fetch;
   const fetchFailed = error.fetch;
 
-  // Get loading state for an item
-  const getItemLoading = (item) => {
-    const itemId = item._id || `${item._productSlug}-${item.variantId}`;
-    return itemLoading[itemId] || { updating: false, removing: false };
-  };
-
   const handleCart = () => {
-    if(!isLoggedIn) {
-      onOpenAuth();
+    if (!isLoggedIn) {
+      onOpenAuth?.();
     } else {
       navigate('/account/usercart');
     }
     onClose();
-  }
+  };
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
@@ -417,7 +579,7 @@ const handleRemove = async (item) => {
       {/* Backdrop */}
       <div
         className={`fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] transition-opacity duration-500 ${
-          isOpen ? "opacity-100" : "opacity-0 pointer-events-none"
+          isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
         }`}
         onClick={onClose}
         aria-hidden="true"
@@ -426,7 +588,7 @@ const handleRemove = async (item) => {
       {/* Sidebar panel */}
       <div
         className={`fixed top-0 right-0 h-full w-full sm:w-[420px] bg-white z-[101] shadow-2xl transform transition-transform duration-500 ease-out flex flex-col ${
-          isOpen ? "translate-x-0" : "translate-x-full"
+          isOpen ? 'translate-x-0' : 'translate-x-full'
         }`}
         role="dialog"
         aria-modal="true"
@@ -439,9 +601,7 @@ const handleRemove = async (item) => {
             <ShoppingBag size={22} className="text-[#F7A221]" />
             <h2 className="text-lg font-black uppercase tracking-tighter">
               Your Cart
-              <span className="ml-2 text-sm font-bold text-gray-400">
-                ({totalItems})
-              </span>
+              <span className="ml-2 text-sm font-bold text-gray-400">({totalItems})</span>
             </h2>
           </div>
           <button
@@ -459,12 +619,13 @@ const handleRemove = async (item) => {
             <AlertCircle size={16} className="text-red-400 mt-0.5 flex-shrink-0" />
             <div className="flex-1 min-w-0">
               <p className="text-xs font-semibold text-red-700">
-                {fetchFailed?.message || error.update?.message || error.remove?.message || "Something went wrong"}
+                {fetchFailed?.message || error.update?.message || error.remove?.message || 'Something went wrong'}
               </p>
             </div>
             <button
               onClick={() => dispatch(clearCartErrors())}
               className="text-red-300 hover:text-red-500 transition-colors flex-shrink-0"
+              aria-label="Dismiss error"
             >
               <X size={14} />
             </button>
@@ -474,7 +635,7 @@ const handleRemove = async (item) => {
         {/* ── Body ── */}
         <div className="flex-1 overflow-y-auto px-6 py-4">
 
-          {/* Loading state */}
+          {/* Loading */}
           {isFetching && currentItems.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center gap-3">
               <RefreshCw size={24} className="text-gray-300 animate-spin" />
@@ -487,8 +648,8 @@ const handleRemove = async (item) => {
           ) : fetchFailed && currentItems.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center gap-4 text-center">
               <AlertCircle size={32} className="text-red-300" />
-              <p className="text-sm text-gray-500 font-medium">
-                {fetchFailed.message || "Failed to load cart"}
+              <p className="text-sm text-gray-500 font-medium max-w-[200px]">
+                {fetchFailed.message || 'Failed to load cart'}
               </p>
               <button
                 onClick={() => dispatch(fetchCart())}
@@ -503,10 +664,13 @@ const handleRemove = async (item) => {
             <div className="divide-y divide-gray-50 scrollbar-hide">
               {currentItems.map((item, index) => {
                 const loadingState = getItemLoading(item);
-                const itemKey = item._id || `${item.productId.slug || item._productSlug}-${item.variantId}-${index}`;
-                const path = `/products/${item?.productId?.slug}`
-                
-                // For guest users, use the simplified GuestCartItem component
+
+                // ✅ FIX: Use item.product?.slug for key and link path
+                const itemKey     = item._id || `${item.product?.slug || item._productSlug || item.productSlug}-${item.variantId}-${index}`;
+                const productSlug = item.product?.slug || item._productSlug;
+                const path        = productSlug ? `/products/${productSlug}` : '#';
+
+                // Guest: simplified component
                 if (!isLoggedIn) {
                   return (
                     <div key={itemKey} className="py-2">
@@ -520,13 +684,17 @@ const handleRemove = async (item) => {
                     </div>
                   );
                 }
-                
-                // For logged-in users, use the full CartItem component
+
+                // Logged-in: full CartItem with link
                 return (
-                  <Link key={itemKey} onClick={onClose} to={path} className="py-2">
+                  <Link
+                    key={itemKey}
+                    onClick={onClose}
+                    to={path}
+                    className="block py-2"
+                  >
                     <CartItem
                       item={item}
-                      isLoggedIn={isLoggedIn}
                       onUpdateQty={handleUpdateQty}
                       onRemove={handleRemove}
                       isUpdating={loadingState.updating}
@@ -536,7 +704,7 @@ const handleRemove = async (item) => {
                 );
               })}
 
-              {/* Guest sign-in nudge - same as wishlist */}
+              {/* Guest sign-in nudge */}
               {!isLoggedIn && (
                 <div className="my-6 p-5 bg-gray-50 rounded-[24px] border border-dashed border-gray-200">
                   <div className="flex items-start gap-3">
@@ -548,8 +716,9 @@ const handleRemove = async (item) => {
                       <p className="text-[10px] text-gray-500 font-medium leading-relaxed mt-1">
                         Don't lose your cart items. Log in to sync across all your devices.
                       </p>
+                      {/* ✅ UPGRADE: calls onOpenAuth() (sidebar auth modal), not navigate('/login') */}
                       <button
-                        onClick={() => {onOpenAuth(); onClose(); }}
+                        onClick={() => { onOpenAuth?.(); onClose(); }}
                         className="mt-3 text-[10px] font-black uppercase tracking-widest text-[#F7A221] hover:underline cursor-pointer"
                       >
                         Login Now →
@@ -570,9 +739,7 @@ const handleRemove = async (item) => {
                 <p className="text-gray-500 font-bold uppercase text-xs tracking-widest">
                   Your cart is empty
                 </p>
-                <p className="text-gray-400 text-xs mt-1">
-                  Add something you love
-                </p>
+                <p className="text-gray-400 text-xs mt-1">Add something you love</p>
               </div>
               <button
                 onClick={onClose}
@@ -586,38 +753,43 @@ const handleRemove = async (item) => {
 
         {/* ── Footer ── */}
         {currentItems.length > 0 && (
-          <div className="border-t px-6 py-5 bg-gray-50/50 space-y-4">
-            {/* Subtotal */}
-            <div className="flex justify-between items-center">
-              <span className="text-sm font-black uppercase tracking-tighter text-gray-700">
-                Subtotal
-              </span>
-              <span className="text-base font-black text-gray-900">
-                {subtotal > 0 ? fmt(subtotal) : "—"}
-              </span>
-            </div>
-            <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wider">
-              Shipping and taxes calculated at checkout
-            </p>
+          <div className="border-t px-6 py-5 bg-gray-50/50 space-y-3">
 
-            {/* CTA buttons */}
-            <div className="space-y-2 pt-1">
-              <Link
-                to="/checkout"
-                onClick={onClose}
-                className="w-full bg-black text-white py-3.5 rounded-xl font-black uppercase tracking-[0.2em] text-[11px] flex items-center justify-center gap-2 hover:bg-[#F7A221] transition-all active:scale-95 shadow-lg shadow-black/10"
-              >
-                Proceed to Checkout
-                <ArrowRight size={15} />
-              </Link>
-              <Link
-                onClick={handleCart}
-                to="/account/usercart"
-                onClose={onClose}
-                className="w-full bg-white border-2 border-black text-black py-3.5 rounded-xl font-black uppercase tracking-[0.2em] text-[11px] flex items-center justify-center hover:bg-gray-50 transition-all active:scale-95"
-              >
-                View Full Cart
-              </Link>
+            {/* ✅ NEW: Delivery checker — auto-shows address date or pincode input */}
+            <DeliverySection isLoggedIn={isLoggedIn} userPincode={userPincode} />
+
+            <div className="border-t border-gray-100 pt-3 space-y-3">
+              {/* Subtotal */}
+              <div className="flex justify-between items-center">
+                <span className="text-sm font-black uppercase tracking-tighter text-gray-700">
+                  Subtotal
+                </span>
+                <span className="text-base font-black text-gray-900">
+                  {subtotal > 0 ? fmt(subtotal) : '—'}
+                </span>
+              </div>
+              <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wider">
+                Shipping and taxes calculated at checkout
+              </p>
+
+              {/* CTA buttons */}
+              <div className="space-y-2 pt-1">
+                <Link
+                  to="/checkout"
+                  onClick={onClose}
+                  className="w-full bg-black text-white py-3.5 rounded-xl font-black uppercase tracking-[0.2em] text-[11px] flex items-center justify-center gap-2 hover:bg-[#F7A221] transition-all active:scale-95 shadow-lg shadow-black/10"
+                >
+                  Proceed to Checkout
+                  <ArrowRight size={15} />
+                </Link>
+                {/* ✅ FIX: <button> not <Link> — avoids broken onClose prop on Link */}
+                <button
+                  onClick={handleCart}
+                  className="w-full bg-white border-2 border-black text-black py-3.5 rounded-xl font-black uppercase tracking-[0.2em] text-[11px] flex items-center justify-center hover:bg-gray-50 transition-all active:scale-95"
+                >
+                  View Full Cart
+                </button>
+              </div>
             </div>
           </div>
         )}

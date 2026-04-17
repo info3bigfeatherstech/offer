@@ -18,36 +18,45 @@
 //   Default destination is /babapanel.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useState, useEffect, useRef }   from "react";
-import { useNavigate, useLocation }       from "react-router-dom";
-import { useDispatch, useSelector }       from "react-redux";
-import { toast }                          from "react-toastify";
-import { ShieldAlert, Lock, User }        from "lucide-react";
-import { useAdminLoginMutation }          from "../ADMIN_REDUX_MANAGEMENT/adminAuthApi";
+import { useState, useEffect, useRef } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
+import { useDispatch, useSelector } from "react-redux";
+import { toast } from "react-toastify";
+import { ShieldAlert, Lock, User } from "lucide-react";
+import { useAdminLoginMutation } from "../ADMIN_REDUX_MANAGEMENT/adminAuthApi";
 import {
   selectAdminStatus,
   selectIsAdminAuth,
-}                                         from "../ADMIN_REDUX_MANAGEMENT/adminAuthSlice";
-import LOGO                               from "../../../assets/logo2.png";
+} from "../ADMIN_REDUX_MANAGEMENT/adminAuthSlice";
+import LOGO from "../../../assets/logo2.png";
 
 // ── Progressive lockout constants ────────────────────────────────────────────
-// Index = number of total failures. Sequence mirrors the user login component.
 const LOCKOUT_SEQUENCE = [0, 0, 0, 30, 60, 300];
-//  0 failures → 0s (no lock)
-//  1 failure  → 0s (warning only)
-//  2 failures → 0s (warning only)
-//  3 failures → 30s lock
-//  4 failures → 60s lock
-//  5+ failures → 300s lock
 
 const getLockDuration = (failCount) =>
   LOCKOUT_SEQUENCE[Math.min(failCount, LOCKOUT_SEQUENCE.length - 1)];
 
 const STORAGE_KEY = "lr_admin_lock";
 
-const readLock  = ()     => { try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "null"); } catch { return null; } };
-const writeLock = (data) => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch {} };
-const clearLock = ()     => { try { localStorage.removeItem(STORAGE_KEY); } catch {} };
+const readLock = () => {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
+  } catch {
+    return null;
+  }
+};
+
+const writeLock = (data) => {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  } catch {}
+};
+
+const clearLock = () => {
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch {}
+};
 
 const formatLockTime = (s) => {
   if (s >= 60) {
@@ -61,27 +70,29 @@ const formatLockTime = (s) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const AdminLogin = () => {
-  const navigate  = useNavigate();
-  const location  = useLocation();
-  const dispatch  = useDispatch();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const dispatch = useDispatch();
 
   const isAlreadyAuth = useSelector(selectIsAdminAuth);
-  const adminStatus   = useSelector(selectAdminStatus);
+  const adminStatus = useSelector(selectAdminStatus);
 
   const [adminLogin, { isLoading }] = useAdminLoginMutation();
 
   // Form state
   const [identifier, setIdentifier] = useState("");
-  const [password,   setPassword]   = useState("");
+  const [password, setPassword] = useState("");
 
   // Lockout state
   const [lockSecondsLeft, setLockSecondsLeft] = useState(0);
-  const [failCount,       setFailCount]       = useState(0);
+  const [failCount, setFailCount] = useState(0);
   const lockTimerRef = useRef(null);
+  const hasRedirected = useRef(false);
 
   // ── If already authenticated, skip login and go to dashboard ────────────
   useEffect(() => {
-    if (isAlreadyAuth) {
+    if (isAlreadyAuth && !hasRedirected.current) {
+      hasRedirected.current = true;
       const destination = location.state?.from || "/babapanel";
       navigate(destination, { replace: true });
     }
@@ -99,12 +110,20 @@ const AdminLogin = () => {
         clearLock();
       }
     }
-    return () => clearInterval(lockTimerRef.current);
+
+    return () => {
+      if (lockTimerRef.current) {
+        clearInterval(lockTimerRef.current);
+      }
+    };
   }, []);
 
   // ── Countdown ticker ─────────────────────────────────────────────────────
   useEffect(() => {
-    clearInterval(lockTimerRef.current);
+    if (lockTimerRef.current) {
+      clearInterval(lockTimerRef.current);
+    }
+
     if (lockSecondsLeft > 0) {
       lockTimerRef.current = setInterval(() => {
         setLockSecondsLeft((s) => {
@@ -117,7 +136,12 @@ const AdminLogin = () => {
         });
       }, 1000);
     }
-    return () => clearInterval(lockTimerRef.current);
+
+    return () => {
+      if (lockTimerRef.current) {
+        clearInterval(lockTimerRef.current);
+      }
+    };
   }, [lockSecondsLeft]);
 
   const startLock = (newFailCount) => {
@@ -135,9 +159,6 @@ const AdminLogin = () => {
     if (lockSecondsLeft > 0 || isLoading) return;
 
     try {
-      // adminAuthApi.transformResponse validates role and stores token.
-      // On success it also fulfills → adminAuthSlice extraReducer sets
-      // status = "authenticated" → useEffect above triggers navigate.
       await adminLogin({ identifier, password }).unwrap();
 
       clearLock();
@@ -145,18 +166,15 @@ const AdminLogin = () => {
       setLockSecondsLeft(0);
       toast.success(`Welcome back ${identifier}!`);
 
-      // Navigate happens via the useEffect watching isAlreadyAuth,
-      // but we also do it here as a safety net for fast resolves.
       const destination = location.state?.from || "/babapanel";
       navigate(destination, { replace: true });
-
     } catch (err) {
-      const newFail    = failCount + 1;
+      const newFail = failCount + 1;
       setFailCount(newFail);
       startLock(newFail);
 
-      const duration   = getLockDuration(newFail);
-      const serverMsg  = err?.data?.message || err?.message || "Invalid credentials.";
+      const duration = getLockDuration(newFail);
+      const serverMsg = err?.data?.message || err?.message || "Invalid credentials.";
 
       if (duration > 0) {
         toast.error(`Too many attempts. Locked for ${formatLockTime(duration)}.`);
@@ -166,106 +184,51 @@ const AdminLogin = () => {
     }
   };
 
-  const isLocked         = lockSecondsLeft > 0;
-  const attemptsBeforeLock = 3; // lock triggers on 3rd failure
-  const attemptsLeft     = attemptsBeforeLock - failCount;
-  const showWarning      = failCount > 0 && failCount < attemptsBeforeLock && !isLocked;
+  const isLocked = lockSecondsLeft > 0;
+  const attemptsBeforeLock = 3;
+  const attemptsLeft = attemptsBeforeLock - failCount;
+  const showWarning = failCount > 0 && failCount < attemptsBeforeLock && !isLocked;
 
   // ── Don't flash the form while checking an existing session ─────────────
   if (adminStatus === "loading") {
     return (
-      <div style={{
-        minHeight: "100vh", display: "flex", alignItems: "center",
-        justifyContent: "center", background: "#000",
-      }}>
-        <div style={{
-          width: "36px", height: "36px",
-          border: "3px solid #1f1f1f", borderTop: "3px solid #f7a221",
-          borderRadius: "50%", animation: "spin 0.8s linear infinite",
-        }} />
-        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      <div className="min-h-screen flex items-center justify-center bg-black">
+        <div className="w-9 h-9 border-3 border-[#1f1f1f] border-t-[#f7a221] rounded-full animate-spin" />
       </div>
     );
   }
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div style={{
-      minHeight:      "100vh",
-      display:        "flex",
-      alignItems:     "center",
-      justifyContent: "center",
-      background:     "#000",
-      padding:        "24px",
-    }}>
+    <div className="min-h-screen flex items-center justify-center bg-black p-6">
       {/* Card */}
-      <div style={{
-        background:   "#0d0d0d",
-        borderRadius: "2rem",
-        border:       "1px solid #1f1f1f",
-        padding:      "48px 40px",
-        width:        "100%",
-        maxWidth:     "420px",
-        boxShadow:    "0 20px 60px rgba(0,0,0,0.7)",
-      }}>
-
+      <div className="bg-[#0d0d0d] rounded-3xl border border-[#1f1f1f] p-12 w-full max-w-[420px] shadow-2xl">
         {/* Logo */}
         <img
           src={LOGO}
           alt="logo"
-          style={{ height: "28px", display: "block", margin: "0 auto 28px" }}
+          className="h-7 block mx-auto mb-7"
         />
 
         {/* Heading */}
-        <h2 style={{
-          textAlign:     "center",
-          color:         "#fff",
-          fontSize:      "28px",
-          fontWeight:    800,
-          letterSpacing: "-0.03em",
-          margin:        "0 0 4px",
-        }}>
-          ADMIN <span style={{ color: "#f7a221" }}>ACCESS</span>
+        <h2 className="text-center text-white text-[28px] font-extrabold tracking-tight mb-1">
+          ADMIN <span className="text-[#f7a221]">ACCESS</span>
         </h2>
-        <p style={{
-          textAlign:     "center",
-          color:         "#555",
-          fontSize:      "10px",
-          fontWeight:    700,
-          letterSpacing: "0.25em",
-          textTransform: "uppercase",
-          margin:        "0 0 28px",
-        }}>
+        <p className="text-center text-[#555] text-[10px] font-bold tracking-[0.25em] uppercase mb-7">
           Restricted area — authorised personnel only
         </p>
 
         {/* ── Lockout banner ───────────────────────────────────────────── */}
         {isLocked && (
-          <div style={{
-            marginBottom:    "20px",
-            padding:         "14px 16px",
-            background:      "rgba(239,68,68,0.08)",
-            border:          "1px solid rgba(239,68,68,0.2)",
-            borderRadius:    "14px",
-            display:         "flex",
-            alignItems:      "flex-start",
-            gap:             "10px",
-          }}>
-            <ShieldAlert size={16} color="#ef4444" style={{ marginTop: "1px", flexShrink: 0 }} />
+          <div className="mb-5 p-3.5 bg-red-500/10 border border-red-500/20 rounded-xl flex items-start gap-2.5">
+            <ShieldAlert size={16} color="#ef4444" className="mt-px flex-shrink-0" />
             <div>
-              <p style={{
-                color:         "#ef4444",
-                fontSize:      "11px",
-                fontWeight:    800,
-                letterSpacing: "0.15em",
-                textTransform: "uppercase",
-                margin:        "0 0 2px",
-              }}>
+              <p className="text-red-500 text-[11px] font-extrabold tracking-[0.15em] uppercase mb-0.5">
                 Account temporarily locked
               </p>
-              <p style={{ color: "rgba(239,68,68,0.6)", fontSize: "11px", margin: 0 }}>
+              <p className="text-red-500/60 text-[11px] m-0">
                 Try again in{" "}
-                <span style={{ fontWeight: 800, color: "#ef4444" }}>
+                <span className="font-extrabold text-red-500">
                   {formatLockTime(lockSecondsLeft)}
                 </span>
               </p>
@@ -275,35 +238,21 @@ const AdminLogin = () => {
 
         {/* ── Attempts warning (before first lockout) ──────────────────── */}
         {showWarning && (
-          <div style={{
-            marginBottom:  "16px",
-            padding:       "10px 14px",
-            background:    "rgba(247,162,33,0.07)",
-            border:        "1px solid rgba(247,162,33,0.2)",
-            borderRadius:  "12px",
-            textAlign:     "center",
-          }}>
-            <p style={{
-              color:         "rgba(247,162,33,0.8)",
-              fontSize:      "11px",
-              fontWeight:    700,
-              letterSpacing: "0.05em",
-              margin:        0,
-            }}>
+          <div className="mb-4 p-2.5 bg-[#f7a221]/10 border border-[#f7a221]/20 rounded-xl text-center">
+            <p className="text-[#f7a221]/80 text-[11px] font-bold tracking-[0.05em] m-0">
               {attemptsLeft} attempt{attemptsLeft !== 1 ? "s" : ""} left before lockout
             </p>
           </div>
         )}
 
         {/* ── Form ─────────────────────────────────────────────────────── */}
-        <form onSubmit={handleLogin} style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-
+        <form onSubmit={handleLogin} className="flex flex-col gap-3">
           {/* Identifier input */}
-          <div style={{ position: "relative" }}>
+          <div className="relative">
             <User
               size={16}
               color="rgba(255,255,255,0.2)"
-              style={{ position: "absolute", left: "16px", top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}
+              className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none"
             />
             <input
               type="text"
@@ -312,30 +261,18 @@ const AdminLogin = () => {
               onChange={(e) => setIdentifier(e.target.value)}
               disabled={isLocked}
               required
-              style={{
-                width:           "100%",
-                boxSizing:       "border-box",
-                background:      "rgba(255,255,255,0.03)",
-                border:          "1px solid rgba(255,255,255,0.08)",
-                borderRadius:    "14px",
-                padding:         "16px 16px 16px 44px",
-                color:           "#fff",
-                fontSize:        "14px",
-                outline:         "none",
-                opacity:         isLocked ? 0.4 : 1,
-                transition:      "border-color 0.2s",
-              }}
-              onFocus={(e)  => { e.target.style.borderColor = "#f7a221"; }}
-              onBlur={(e)   => { e.target.style.borderColor = "rgba(255,255,255,0.08)"; }}
+              className={`w-full box-border bg-white/5 border border-white/10 rounded-xl py-4 px-4 pl-11 text-white text-sm outline-none transition-colors focus:border-[#f7a221] ${
+                isLocked ? "opacity-40" : ""
+              }`}
             />
           </div>
 
           {/* Password input */}
-          <div style={{ position: "relative" }}>
+          <div className="relative">
             <Lock
               size={16}
               color="rgba(255,255,255,0.2)"
-              style={{ position: "absolute", left: "16px", top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}
+              className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none"
             />
             <input
               type="password"
@@ -345,21 +282,9 @@ const AdminLogin = () => {
               autoComplete="current-password"
               disabled={isLocked}
               required
-              style={{
-                width:        "100%",
-                boxSizing:    "border-box",
-                background:   "rgba(255,255,255,0.03)",
-                border:       "1px solid rgba(255,255,255,0.08)",
-                borderRadius: "14px",
-                padding:      "16px 16px 16px 44px",
-                color:        "#fff",
-                fontSize:     "14px",
-                outline:      "none",
-                opacity:      isLocked ? 0.4 : 1,
-                transition:   "border-color 0.2s",
-              }}
-              onFocus={(e) => { e.target.style.borderColor = "#f7a221"; }}
-              onBlur={(e)  => { e.target.style.borderColor = "rgba(255,255,255,0.08)"; }}
+              className={`w-full box-border bg-white/5 border border-white/10 rounded-xl py-4 px-4 pl-11 text-white text-sm outline-none transition-colors focus:border-[#f7a221] ${
+                isLocked ? "opacity-40" : ""
+              }`}
             />
           </div>
 
@@ -367,23 +292,11 @@ const AdminLogin = () => {
           <button
             type="submit"
             disabled={isLoading || isLocked}
-            style={{
-              marginTop:     "4px",
-              width:         "100%",
-              background:    isLocked ? "#1f1f1f" : "#f7a221",
-              color:         isLocked ? "#555"    : "#000",
-              border:        "none",
-              borderRadius:  "14px",
-              padding:       "17px",
-              fontWeight:    800,
-              fontSize:      "13px",
-              letterSpacing: "0.12em",
-              textTransform: "uppercase",
-              cursor:        isLocked || isLoading ? "not-allowed" : "pointer",
-              opacity:       isLoading ? 0.7 : 1,
-              transition:    "background 0.2s, color 0.2s",
-              boxShadow:     isLocked ? "none" : "0 8px 24px rgba(247,162,33,0.2)",
-            }}
+            className={`mt-1 w-full rounded-xl py-[17px] font-extrabold text-[13px] tracking-[0.12em] uppercase transition-all ${
+              isLocked
+                ? "bg-[#1f1f1f] text-[#555] cursor-not-allowed"
+                : "bg-[#f7a221] text-black hover:bg-[#f7a221]/90 cursor-pointer shadow-lg shadow-[#f7a221]/20"
+            } ${isLoading ? "opacity-70" : ""}`}
           >
             {isLoading
               ? "Verifying…"
@@ -394,16 +307,7 @@ const AdminLogin = () => {
         </form>
 
         {/* Security note */}
-        <p style={{
-          textAlign:     "center",
-          color:         "#2a2a2a",
-          fontSize:      "10px",
-          fontWeight:    600,
-          letterSpacing: "0.1em",
-          textTransform: "uppercase",
-          marginTop:     "24px",
-          marginBottom:  0,
-        }}>
+        <p className="text-center text-[#2a2a2a] text-[10px] font-semibold tracking-[0.1em] uppercase mt-6 mb-0">
           All access attempts are logged
         </p>
       </div>

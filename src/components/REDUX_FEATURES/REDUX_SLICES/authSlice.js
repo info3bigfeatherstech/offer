@@ -423,6 +423,20 @@ export const {
   forceLogout,
 } = authSlice.actions;
 
+
+
+// ─────────────────────────────────────────────────────────────
+// SELECTORS (ADD THIS)
+// ─────────────────────────────────────────────────────────────
+
+export const selectUser = (state) => state.auth.user;
+export const selectIsLoggedIn = (state) => state.auth.isLoggedIn;
+export const selectAccessToken = (state) => state.auth.accessToken;
+export const selectAuthLoading = (state) => state.auth.loading;
+export const selectAuthError = (state) => state.auth.error;
+export const selectSuccessMessage = (state) => state.auth.successMessage;
+export const selectPendingPhone = (state) => state.auth.pendingPhone;
+export const selectForgotPasswordIdentifier = (state) => state.auth.forgotPasswordIdentifier;
 export default authSlice.reducer;
 
 // import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";

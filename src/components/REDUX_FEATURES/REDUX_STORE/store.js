@@ -7,6 +7,7 @@ import adminEditProductReducer from "../../ADMIN_SEGMENT/ADMIN_REDUX_MANAGEMENT/
 import categoriesReducer from "../../ADMIN_SEGMENT/ADMIN_REDUX_MANAGEMENT/categoriesSlice";
 import adminBulkUploadReducer from "../../ADMIN_SEGMENT/ADMIN_REDUX_MANAGEMENT/bulkUploadSlice";
 import { userAnalyticsApi } from "../../ADMIN_SEGMENT/ADMIN_REDUX_MANAGEMENT/userAnalyticsApi";
+import adminAuthReducer from "../../ADMIN_SEGMENT/ADMIN_REDUX_MANAGEMENT/adminAuthSlice";
 import { adminAuthApi } from "../../ADMIN_SEGMENT/ADMIN_REDUX_MANAGEMENT/adminAuthApi";
 import { seoAnalyticsApi, seoUiReducer } from "../../ADMIN_SEGMENT/ADMIN_REDUX_MANAGEMENT/adminSeoAnalytics";
 
@@ -22,13 +23,14 @@ import orderReducer from '../REDUX_SLICES/orderSlice/orderSlice';
 
 const store = configureStore({
   reducer: {
-    auth: authReducer,
+    auth: authReducer,   //user authentication reducer
     adminProductCreate: adminProductCreateReducer,
     adminGetProducts: adminGetProductsReducer,
     adminEditProduct: adminEditProductReducer,
     adminArchived: adminArchivedReducer,
     categories: categoriesReducer,
     adminBulkUpload: adminBulkUploadReducer,
+    adminAuth: adminAuthReducer,
     [adminAuthApi.reducerPath]: adminAuthApi.reducer,
     [userAnalyticsApi.reducerPath]: userAnalyticsApi.reducer,
     [seoAnalyticsApi.reducerPath]: seoAnalyticsApi.reducer,

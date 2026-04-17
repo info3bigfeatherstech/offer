@@ -197,3 +197,14 @@ body {
   font-style: italic;
   font-display: swap;
 } */
+
+
+/* Force hide any stuck Razorpay elements when navigating away */
+body:not(.modal-open) .razorpay-container {
+    display: none !important;
+}
+
+/* Ensure body can scroll after modal closes */
+body.razorpay-checkout-frame-opened {
+    overflow: auto !important;
+}
