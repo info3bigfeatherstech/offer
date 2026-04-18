@@ -1,0 +1,189 @@
+import { createSlice } from '@reduxjs/toolkit';
+
+/**
+ * Maps UI tab labels (OrderTab) → backend `bucket` query param.
+ */
+export const ORDER_TAB_LABEL_TO_BUCKET = Object.freeze({
+  All: 'all',
+  Pending: 'new',
+  Confirmed: 'bill_sent',
+  Processing: 'ready_to_pick',
+  'In transit': 'in_transit',
+  Delivered: 'completed',
+  Others: 'others',
+});
+
+/** @type {keyof typeof ORDER_TAB_LABEL_TO_BUCKET} */
+export const DEFAULT_ORDER_TAB_LABEL = 'All';
+
+/**
+ * Maps backend countsByBucket keys → UI tab labels (for summary sync).
+ */
+export const BUCKET_KEY_TO_TAB_LABEL = Object.freeze({
+  all: 'All',
+  new: 'Pending',
+  bill_sent: 'Confirmed',
+  ready_to_pick: 'Processing',
+  in_transit: 'In transit',
+  completed: 'Delivered',
+  others: 'Others',
+});
+
+/** @typedef {'today'|'last7'|'last30'|'custom'} DatePresetId */
+
+/**
+ * `YYYY-MM-DD` → start of that local day as ISO (for API `from`)
+ */
+export function localDateStrToStartIso(dateStr) {
+  if (!dateStr || typeof dateStr !== 'string') return null;
+  const parts = dateStr.split('-').map(Number);
+  if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n))) return null;
+  const [y, m, d] = parts;
+  const dt = new Date(y, m - 1, d, 0, 0, 0, 0);
+  if (Number.isNaN(dt.getTime())) return null;
+  return dt.toISOString();
+}
+
+/**
+ * `YYYY-MM-DD` → end of that local day as ISO (for API `to`)
+ */
+export function localDateStrToEndIso(dateStr) {
+  if (!dateStr || typeof dateStr !== 'string') return null;
+  const parts = dateStr.split('-').map(Number);
+  if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n))) return null;
+  const [y, m, d] = parts;
+  const dt = new Date(y, m - 1, d, 23, 59, 59, 999);
+  if (Number.isNaN(dt.getTime())) return null;
+  return dt.toISOString();
+}
+
+const initialState = {
+  activeTabLabel: DEFAULT_ORDER_TAB_LABEL,
+  search: '',
+  searchInput: '',
+  page: 1,
+  limit: 20,
+  sortBy: 'createdAt',
+  sortOrder: 'desc',
+  /** @type {DatePresetId} */
+  datePreset: 'last30',
+  /** Custom range — local date inputs `YYYY-MM-DD` */
+  customDateFrom: '',
+  customDateTo: '',
+};
+
+const adminOrdersUiSlice = createSlice({
+  name: 'adminOrdersUi',
+  initialState,
+  reducers: {
+    setActiveTabLabel: (state, { payload }) => {
+      if (payload && ORDER_TAB_LABEL_TO_BUCKET[payload] != null) {
+        state.activeTabLabel = payload;
+        state.page = 1;
+      }
+    },
+    setSearchInput: (state, { payload }) => {
+      state.searchInput = payload ?? '';
+    },
+    commitSearch: (state) => {
+      state.search = String(state.searchInput || '').trim();
+      state.page = 1;
+    },
+    clearSearch: (state) => {
+      state.search = '';
+      state.searchInput = '';
+      state.page = 1;
+    },
+    setPage: (state, { payload }) => {
+      const p = Math.max(1, Number(payload) || 1);
+      state.page = p;
+    },
+    setLimit: (state, { payload }) => {
+      const l = Math.min(100, Math.max(1, Number(payload) || 20));
+      state.limit = l;
+      state.page = 1;
+    },
+    setSort: (state, { payload }) => {
+      if (payload?.sortBy) state.sortBy = payload.sortBy;
+      if (payload?.sortOrder) state.sortOrder = payload.sortOrder;
+    },
+    /**
+     * @param {import('@reduxjs/toolkit').PayloadAction<DatePresetId>} action
+     */
+    setDatePreset: (state, { payload }) => {
+      const p = payload || 'last30';
+      state.datePreset = p;
+      state.page = 1;
+      if (p !== 'custom') {
+        state.customDateFrom = '';
+        state.customDateTo = '';
+      }
+    },
+    /**
+     * Committed when user clicks Apply on custom range (avoids refetch on every keystroke).
+     */
+    commitCustomRange: (state, { payload }) => {
+      state.customDateFrom = String(payload?.from || '');
+      state.customDateTo = String(payload?.to || '');
+      state.datePreset = 'custom';
+      state.page = 1;
+    },
+    resetAdminOrdersUi: () => ({ ...initialState }),
+  },
+});
+
+export const {
+  setActiveTabLabel,
+  setSearchInput,
+  commitSearch,
+  clearSearch,
+  setPage,
+  setLimit,
+  setSort,
+  setDatePreset,
+  commitCustomRange,
+  resetAdminOrdersUi,
+} = adminOrdersUiSlice.actions;
+
+export default adminOrdersUiSlice.reducer;
+
+function buildDateQueryArgs(ui) {
+  if (ui.datePreset === 'custom') {
+    const fromIso = localDateStrToStartIso(ui.customDateFrom);
+    const toIso = localDateStrToEndIso(ui.customDateTo);
+    if (fromIso && toIso) {
+      return { from: fromIso, to: toIso };
+    }
+    return { rangePreset: 'last30' };
+  }
+  if (ui.datePreset === 'today') return { rangePreset: 'today' };
+  if (ui.datePreset === 'last7') return { rangePreset: 'last7' };
+  if (ui.datePreset === 'last30') return { rangePreset: 'last30' };
+  return { rangePreset: 'last30' };
+}
+
+/**
+ * Build RTK Query args for list endpoint from Redux state.
+ */
+export function selectAdminOrdersListQueryArgs(state) {
+  const ui = state.adminOrdersUi;
+  const bucket = ORDER_TAB_LABEL_TO_BUCKET[ui.activeTabLabel] || 'all';
+  const dateArgs = buildDateQueryArgs(ui);
+  return {
+    page: ui.page,
+    limit: ui.limit,
+    sortBy: ui.sortBy,
+    sortOrder: ui.sortOrder,
+    bucket,
+    search: ui.search,
+    ...dateArgs,
+  };
+}
+
+/**
+ * Build summary query args (same range as list).
+ */
+export function selectAdminOrdersSummaryQueryArgs(state) {
+  const ui = state.adminOrdersUi;
+  return buildDateQueryArgs(ui);
+}

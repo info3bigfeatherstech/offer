@@ -1,6 +1,3 @@
-// Shared_components/CategoryModal.jsx
-// COMPLETE WORKING FILE
-
 import React, {
   useState,
   useRef,
@@ -61,10 +58,21 @@ const ImagePreview = memo(({ src, isNewFile, onClear, onReplace, onUploadClick }
   const [loaded, setLoaded] = useState(false);
   const [error,  setError]  = useState(false);
 
+  // data: URIs are already in memory — treat them as instantly loaded.
+  // Only remote http(s) URLs need the loading skeleton / onLoad wait.
+  const isDataUri   = src?.startsWith("data:");
+  const showVisible = loaded || isDataUri;   // show image immediately for local files
+
   useEffect(() => {
-    setLoaded(false);
-    setError(false);
-  }, [src]);
+    // For data URIs we skip the skeleton entirely, so no need to reset.
+    if (!isDataUri) {
+      setLoaded(false);
+      setError(false);
+    } else {
+      // Reset error state when a new data URI arrives
+      setError(false);
+    }
+  }, [src, isDataUri]);
 
   if (!src) {
     return (
@@ -82,7 +90,8 @@ const ImagePreview = memo(({ src, isNewFile, onClear, onReplace, onUploadClick }
 
   return (
     <div className="relative w-full h-32 rounded-xl overflow-hidden border border-gray-200 bg-gray-50">
-      {!loaded && !error && (
+      {/* Skeleton — only for remote URLs while they load */}
+      {!showVisible && !error && (
         <div className="absolute inset-0 bg-gray-100 animate-pulse z-10" />
       )}
       {error && (
@@ -97,9 +106,9 @@ const ImagePreview = memo(({ src, isNewFile, onClear, onReplace, onUploadClick }
         alt="Category preview"
         onLoad={() => { setLoaded(true); setError(false); }}
         onError={() => { setError(true); setLoaded(false); }}
-        className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-200 ${loaded ? "opacity-100" : "opacity-0"}`}
+        className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-200 ${showVisible ? "opacity-100" : "opacity-0"}`}
       />
-      {isNewFile && loaded && (
+      {isNewFile && (
         <span className="absolute top-2 left-2 bg-blue-600 text-white text-[10px] font-semibold px-2 py-0.5 rounded-full z-20 shadow-sm">
           New
         </span>
@@ -115,7 +124,7 @@ const ImagePreview = memo(({ src, isNewFile, onClear, onReplace, onUploadClick }
       <button
         type="button"
         onClick={onReplace}
-        className="absolute bottom-2  cursor-pointer right-2 bg-white rounded-lg px-2.5 py-1 text-xs font-medium text-gray-700 shadow-md hover:bg-gray-50 transition-colors z-20 flex items-center gap-1.5"
+        className="absolute bottom-2 cursor-pointer right-2 bg-white rounded-lg px-2.5 py-1 text-xs font-medium text-gray-700 shadow-md hover:bg-gray-50 transition-colors z-20 flex items-center gap-1.5"
       >
         <Icon d={ICONS.replace} size={11} />
         Replace
@@ -127,13 +136,6 @@ ImagePreview.displayName = "ImagePreview";
 
 // ─────────────────────────────────────────────────────────────
 //  CATEGORY ROW
-//
-//  NOT wrapped in memo intentionally.
-//  memo + HTML5 drag-and-drop breaks because:
-//    - memo prevents re-renders when the parent reorders the list
-//    - a memoized row can call onDragOver(e, STALE_INDEX) because
-//      its index prop didn't change from its perspective
-//    - category list is short so full re-render cost is negligible
 // ─────────────────────────────────────────────────────────────
 const CategoryRow = ({
   cat,
@@ -243,7 +245,7 @@ const CategoryRow = ({
         className={[
           "p-1.5 rounded-lg transition-colors flex-shrink-0",
           isEditing
-            ? "text-blue-600  bg-blue-100"
+            ? "text-blue-600 bg-blue-100"
             : "text-gray-400 cursor-pointer hover:text-blue-600 hover:bg-blue-50",
         ].join(" ")}
       >
@@ -277,7 +279,7 @@ const CategoryRow = ({
           type="button"
           onClick={() => onDeleteRequest(cat._id)}
           title="Delete category"
-          className="p-1.5 rounded-lg  cursor-pointer text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors flex-shrink-0"
+          className="p-1.5 rounded-lg cursor-pointer text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors flex-shrink-0"
         >
           <Icon d={ICONS.trash} size={15} />
         </button>
@@ -285,17 +287,6 @@ const CategoryRow = ({
     </div>
   );
 };
-
-// ─────────────────────────────────────────────────────────────
-//  FILE → BASE64 DATA URI
-// ─────────────────────────────────────────────────────────────
-const fileToDataURI = (file) =>
-  new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload  = (e) => resolve(e.target.result);
-    reader.onerror = ()  => reject(new Error("FileReader failed"));
-    reader.readAsDataURL(file);
-  });
 
 // ─────────────────────────────────────────────────────────────
 //  MAIN MODAL
@@ -317,17 +308,9 @@ const CategoryModal = ({ onSelect, onClose }) => {
   const [hasReordered,      setHasReordered]      = useState(false);
   const [dragOverIndex,     setDragOverIndex]      = useState(null);
 
-  // ── THE FIX: track drag source index via ref, not state ───────
-  //  React state updates are async/batched. During rapid dragOver
-  //  events the state read would be stale, causing wrong splice.
-  //  A ref is synchronously current on every read.
   const dragSourceIndexRef = useRef(null);
+  const orderedCatsRef     = useRef([]);
 
-  // ── Mirror of orderedCategories as a ref ──────────────────────
-  //  dragOver handler has empty deps (stable ref) so it cannot
-  //  close over the orderedCategories state — it would always see
-  //  the initial empty array. A ref solves this.
-  const orderedCatsRef = useRef([]);
   useEffect(() => {
     orderedCatsRef.current = orderedCategories;
   }, [orderedCategories]);
@@ -336,8 +319,11 @@ const CategoryModal = ({ onSelect, onClose }) => {
   const [editingCat,    setEditingCat]    = useState(null);
   const [formName,      setFormName]      = useState("");
   const [formDesc,      setFormDesc]      = useState("");
-  const [formImageFile, setFormImageFile] = useState(null);
-  const [formImageSrc,  setFormImageSrc]  = useState("");
+  const [formImageFile, setFormImageFile] = useState(null);   // File | null
+  const [formImageSrc,  setFormImageSrc]  = useState("");     // data URI | server URL | ""
+  // Tracks the server URL of the category being edited so we can
+  // restore it if the user cancels a new file selection.
+  const existingImageUrlRef = useRef("");
 
   // ── Delete confirm ───────────────────────────────────────────
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
@@ -349,7 +335,6 @@ const CategoryModal = ({ onSelect, onClose }) => {
 
   // ── Sync Redux → local list (only when drag is NOT active) ────
   useEffect(() => {
-    // Never overwrite the list while the user is dragging
     if (dragSourceIndexRef.current !== null) return;
     const sorted = [...categories].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     setOrderedCategories(sorted);
@@ -368,28 +353,48 @@ const CategoryModal = ({ onSelect, onClose }) => {
   }, [onClose]);
 
   // ─────────────────────────────────────────────────────────────
-  //  IMAGE HELPERS
+  //  THE FIX: drive preview purely from state via useEffect
+  //
+  //  Previously applyPreview was async and called inside callbacks.
+  //  Async state updates inside useCallback can silently lose the
+  //  update if the component re-renders between the await and the
+  //  setState call (React batches/discards in strict mode too).
+  //
+  //  Solution: watch formImageFile with a useEffect.
+  //  - If a new File is picked  → generate data URI and set src.
+  //  - If formImageFile is null → fall back to existingImageUrlRef
+  //    (the server URL of the category being edited, or "" for create).
+  //  This runs synchronously after every file change, guaranteed.
   // ─────────────────────────────────────────────────────────────
-  const applyPreview = useCallback(async (source) => {
-    if (!source) { setFormImageSrc(""); return; }
-    if (source instanceof File) {
-      try {
-        const uri = await fileToDataURI(source);
-        setFormImageSrc(uri);
-      } catch {
-        setFormImageSrc("");
-      }
-    } else if (typeof source === "string" && source.trim()) {
-      setFormImageSrc(source);
-    } else {
-      setFormImageSrc("");
-    }
-  }, []);
+  useEffect(() => {
+    let cancelled = false;
 
+    if (formImageFile) {
+      // New local file selected — generate preview
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        if (!cancelled) setFormImageSrc(e.target.result);
+      };
+      reader.onerror = () => {
+        if (!cancelled) setFormImageSrc(existingImageUrlRef.current);
+      };
+      reader.readAsDataURL(formImageFile);
+    } else {
+      // No file selected — show existing server image (or nothing for create)
+      setFormImageSrc(existingImageUrlRef.current);
+    }
+
+    return () => { cancelled = true; };
+  }, [formImageFile]);
+
+  // ─────────────────────────────────────────────────────────────
+  //  IMAGE URL HELPER
+  // ─────────────────────────────────────────────────────────────
   const getExistingImageUrl = useCallback((cat) =>
     cat?.image?.url ||
     cat?.image?.secure_url ||
-    (typeof cat?.image === "string" && cat.image !== "" ? cat.image : null)
+    (typeof cat?.image === "string" && cat.image !== "" ? cat.image : null) ||
+    ""
   , []);
 
   // ─────────────────────────────────────────────────────────────
@@ -400,23 +405,25 @@ const CategoryModal = ({ onSelect, onClose }) => {
     setFormName("");
     setFormDesc("");
     setFormImageFile(null);
-    setFormImageSrc("");
+    existingImageUrlRef.current = "";
+    // formImageSrc will auto-clear via the useEffect above
     if (imageInputRef.current) imageInputRef.current.value = "";
   }, []);
 
-  const openEdit = useCallback(async (cat) => {
+  const openEdit = useCallback((cat) => {
     setEditingCat(cat);
     setFormName(cat.name || "");
     setFormDesc(cat.description || "");
     setFormImageFile(null);
+    existingImageUrlRef.current = getExistingImageUrl(cat);
+    // formImageSrc will be set to the server URL via the useEffect above
     if (imageInputRef.current) imageInputRef.current.value = "";
-    await applyPreview(getExistingImageUrl(cat));
     setTimeout(() => {
       formTopRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 50);
-  }, [applyPreview, getExistingImageUrl]);
+  }, [getExistingImageUrl]);
 
-  const handleImageChange = useCallback(async (e) => {
+  const handleImageChange = useCallback((e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (!file.type.startsWith("image/")) {
@@ -427,19 +434,15 @@ const CategoryModal = ({ onSelect, onClose }) => {
       alert("Image must be under 5 MB.");
       return;
     }
+    // Setting formImageFile triggers the useEffect which generates the preview
     setFormImageFile(file);
-    await applyPreview(file);
-  }, [applyPreview]);
+  }, []);
 
-  const clearImage = useCallback(async () => {
+  const clearImage = useCallback(() => {
     setFormImageFile(null);
     if (imageInputRef.current) imageInputRef.current.value = "";
-    if (isEditMode) {
-      await applyPreview(getExistingImageUrl(editingCat));
-    } else {
-      setFormImageSrc("");
-    }
-  }, [isEditMode, editingCat, applyPreview, getExistingImageUrl]);
+    // useEffect will restore existingImageUrlRef.current automatically
+  }, []);
 
   // ─────────────────────────────────────────────────────────────
   //  CRUD
@@ -488,7 +491,6 @@ const CategoryModal = ({ onSelect, onClose }) => {
   // ── Visibility toggle — optimistic + server rollback ──────────
   const handleToggleVisibility = useCallback(async (cat) => {
     const wasHidden = cat.status === "inactive";
-    // Optimistic: flip immediately in local list
     setOrderedCategories((prev) =>
       prev.map((c) =>
         c._id === cat._id
@@ -499,7 +501,6 @@ const CategoryModal = ({ onSelect, onClose }) => {
     const result = await dispatch(
       toggleCategoryVisibility({ id: cat._id, isHidden: !wasHidden })
     );
-    // Roll back on failure
     if (!toggleCategoryVisibility.fulfilled.match(result)) {
       await dispatch(fetchCategories());
     }
@@ -512,31 +513,11 @@ const CategoryModal = ({ onSelect, onClose }) => {
 
   // ─────────────────────────────────────────────────────────────
   //  DRAG & DROP
-  //
-  //  Why refs instead of state for the drag source index?
-  //
-  //  dragOver fires many times per second. If we stored the source
-  //  index in React state, by the time the next dragOver fires the
-  //  state setter from the PREVIOUS dragOver may not have flushed
-  //  yet (React batches updates). Reading stale state means we
-  //  splice from the wrong index, producing scrambled order or
-  //  no-ops. A ref write is synchronous and immediately visible
-  //  on the next read, solving this entirely.
-  //
-  //  Same problem with orderedCategories: a useCallback with []
-  //  deps closes over the initial empty array forever. By keeping
-  //  a ref mirror (orderedCatsRef) we always read the latest array
-  //  without adding categories to the deps (which would recreate
-  //  the callback every render and break things differently).
   // ─────────────────────────────────────────────────────────────
-
   const handleDragStart = useCallback((e, index) => {
     dragSourceIndexRef.current = index;
     e.dataTransfer.effectAllowed = "move";
-    // Required: browser won't fire drop without data set
     e.dataTransfer.setData("text/plain", String(index));
-    // Style the element being dragged (currentTarget is safe here,
-    // before rAF, unlike e.target which can be a child element)
     e.currentTarget.style.opacity = "0.4";
   }, []);
 
@@ -546,36 +527,26 @@ const CategoryModal = ({ onSelect, onClose }) => {
     if (e.currentTarget) e.currentTarget.style.opacity = "";
   }, []);
 
-  // Empty deps is CORRECT here — we intentionally only read refs
   const handleDragOver = useCallback((e, targetIndex) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
 
     const sourceIndex = dragSourceIndexRef.current;
-
-    // Update visual highlight regardless
     setDragOverIndex(targetIndex);
 
-    // Nothing to reorder
     if (sourceIndex === null || sourceIndex === targetIndex) return;
 
-    // Read the always-current array from the ref
     const current = [...orderedCatsRef.current];
     const [moved] = current.splice(sourceIndex, 1);
     current.splice(targetIndex, 0, moved);
 
-    // Update the source index ref synchronously before the next dragOver
     dragSourceIndexRef.current = targetIndex;
-
-    // Commit new visual order to React state
     setOrderedCategories(current);
     setHasReordered(true);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleDrop = useCallback((e, _targetIndex) => {
     e.preventDefault();
-    // Live reorder already happened in dragOver.
-    // Drop just cleans up residual state.
     dragSourceIndexRef.current = null;
     setDragOverIndex(null);
   }, []);
@@ -838,6 +809,9 @@ const CategoryModal = ({ onSelect, onClose }) => {
 };
 
 export default CategoryModal;
+
+
+
 // code is working but upper code have drag and drop plus hid cat 
 // // Shared_components/CategoryModal.jsx
 
