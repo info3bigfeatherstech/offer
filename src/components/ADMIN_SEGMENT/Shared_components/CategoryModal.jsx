@@ -1,6 +1,3 @@
-// Shared_components/CategoryModal.jsx
-// COMPLETE WORKING FILE
-
 import React, {
   useState,
   useRef,
@@ -812,6 +809,9 @@ const CategoryModal = ({ onSelect, onClose }) => {
 };
 
 export default CategoryModal;
+
+
+
 // code is working but upper code have drag and drop plus hid cat 
 // // Shared_components/CategoryModal.jsx
 

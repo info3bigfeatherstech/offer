@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
+import { toast } from "react-toastify";
 import {
   fetchUserOrders,
   fetchOrderById,
@@ -7,6 +8,7 @@ import {
   cancelOrder,
   clearOrderErrors,
   clearActiveOrder,
+  initiatePendingOrderPayment,
   selectOrders,
   selectActiveOrder,
   selectTracking,
@@ -14,9 +16,19 @@ import {
   selectOrderError,
 } from "../../../components/REDUX_FEATURES/REDUX_SLICES/orderSlice/orderSlice";
 import {
+  verifyRazorpayPayment,
+  selectPaymentVerification,
+  resetPaymentVerification,
+} from "../../../components/REDUX_FEATURES/REDUX_SLICES/checkoutSlice/checkoutSlice";
+import { selectUser } from "../../../components/REDUX_FEATURES/REDUX_SLICES/authSlice";
+import RazorpayCheckout, {
+  PaymentLoadingModal,
+  PaymentErrorModal,
+} from "../../CHECKOUT/RazorpayCheckout/RazorpayCheckout";
+import {
   Package, Truck, CheckCircle, ChevronRight, RefreshCw,
   XCircle, Clock, AlertCircle, ArrowLeft, MapPin,
-  Receipt, X, Loader2, ShoppingBag,
+  Loader2, ShoppingBag, CreditCard,
 } from "lucide-react";
 
 const fmt = (n) =>
@@ -34,6 +46,34 @@ const fmtDate = (d) => {
     year: "numeric",
   });
 };
+
+const fmtDateTime = (d) => {
+  if (!d) return "—";
+  return new Date(d).toLocaleString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+};
+
+/** User can resume Razorpay for an unpaid online order (matches backend initiate-pending rules). */
+function isPaymentWindowExpired(order) {
+  if (!order?.paymentHoldExpiresAt) return false;
+  return new Date(order.paymentHoldExpiresAt).getTime() < Date.now();
+}
+
+function canResumeOnlinePayment(order) {
+  if (!order) return false;
+  if (order.orderStatus !== "pending") return false;
+  if (order.paymentStatus !== "pending") return false;
+  if (String(order.paymentInfo?.method || "").toLowerCase() !== "online") return false;
+  if (Number(order.amountPaidInr) > 0.01) return false;
+  if (isPaymentWindowExpired(order)) return false;
+  return true;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Status config
@@ -136,22 +176,99 @@ const TrackingTimeline = ({ timeline = [] }) => (
 const OrderDetail = ({ orderId, onBack, onCancel, isCancelling, cancelError }) => {
   const dispatch = useDispatch();
   const order = useSelector(selectActiveOrder);
+  const user = useSelector(selectUser);
   const tracking = useSelector(selectTracking(orderId));
   const loading = useSelector(selectOrderLoading);
   const error = useSelector(selectOrderError);
+  const initiatePaymentLoading = useSelector((s) => s.orders.loading.initiatePayment);
+  const initiatePaymentError = useSelector((s) => s.orders.error.initiatePayment);
+  const paymentVerification = useSelector(selectPaymentVerification);
 
   const [showTracking, setShowTracking] = useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [showRazorpay, setShowRazorpay] = useState(false);
+  const [razorpayBundle, setRazorpayBundle] = useState(null);
+  const [razorpayClientError, setRazorpayClientError] = useState(null);
 
   useEffect(() => {
     dispatch(fetchOrderById(orderId));
-    return () => dispatch(clearActiveOrder());
+    return () => {
+      dispatch(clearActiveOrder());
+      dispatch(resetPaymentVerification());
+      setRazorpayBundle(null);
+      setShowRazorpay(false);
+      setRazorpayClientError(null);
+    };
   }, [orderId, dispatch]);
 
   const handleTrack = () => {
     if (!tracking) dispatch(trackOrder(orderId));
     setShowTracking((v) => !v);
   };
+
+  const handleContinuePayment = useCallback(async () => {
+    if (!order?.orderId) return;
+    setRazorpayClientError(null);
+    dispatch(resetPaymentVerification());
+    try {
+      const data = await dispatch(initiatePendingOrderPayment(order.orderId)).unwrap();
+      const key = data.razorpayKeyId;
+      const rzOrder = data.razorpayOrder;
+      if (!key || !rzOrder?.id) {
+        throw new Error("Payment could not be started. Please try again.");
+      }
+      setRazorpayBundle({ key, order: rzOrder });
+      setShowRazorpay(true);
+    } catch {
+      /* error in initiatePaymentError */
+    }
+  }, [dispatch, order]);
+
+  const handleRazorpaySuccess = useCallback(
+    async (response) => {
+      setShowRazorpay(false);
+      setRazorpayBundle(null);
+      const oid = order?.orderId || response?.notes?.orderId;
+      if (!oid) {
+        toast.error("Missing order reference. Please contact support.", { theme: "dark" });
+        return;
+      }
+      try {
+        await dispatch(
+          verifyRazorpayPayment({
+            razorpay_order_id: response.razorpay_order_id,
+            razorpay_payment_id: response.razorpay_payment_id,
+            razorpay_signature: response.razorpay_signature,
+            orderId: oid,
+          })
+        ).unwrap();
+        await dispatch(fetchOrderById(oid)).unwrap();
+        dispatch(fetchUserOrders());
+        dispatch(resetPaymentVerification());
+        toast.success("Payment successful! Your order is confirmed.", { theme: "dark", autoClose: 3500 });
+      } catch (e) {
+        console.error(e);
+        /* verify error surfaced via paymentVerification + modal */
+      }
+    },
+    [dispatch, order?.orderId]
+  );
+
+  const handleRazorpayFailure = useCallback((msg) => {
+    setShowRazorpay(false);
+    setRazorpayBundle(null);
+    setRazorpayClientError(msg || "Payment failed. Please try again.");
+  }, []);
+
+  const handleRazorpayClose = useCallback(() => {
+    setShowRazorpay(false);
+    setRazorpayBundle(null);
+  }, []);
+
+  /** Verify / Razorpay client failures — initiate errors stay inline only */
+  const modalError = paymentVerification.error || razorpayClientError || null;
+
+  const holdExpired = order && isPaymentWindowExpired(order);
 
   if (loading.fetchOne) {
     return (
@@ -213,6 +330,49 @@ const OrderDetail = ({ orderId, onBack, onCancel, isCancelling, cancelError }) =
             </div>
           ))}
         </div>
+
+        {String(order?.paymentInfo?.method || "").toLowerCase() === "online" &&
+          order.orderStatus === "pending" &&
+          order.paymentStatus === "pending" && (
+            <div className="mt-6 pt-6 border-t border-amber-100 space-y-3">
+              <div className="flex items-start gap-3">
+                <CreditCard className="text-amber-600 shrink-0 mt-0.5" size={20} />
+                <div className="min-w-0">
+                  <h3 className="text-sm font-black text-gray-900">Payment required</h3>
+                  <p className="text-xs text-gray-500 font-medium mt-1">
+                    Your cart was turned into this order. Complete payment to confirm it.
+                  </p>
+                  {order.paymentHoldExpiresAt && !holdExpired && (
+                    <p className="text-[11px] text-amber-800 font-bold mt-2">
+                      Complete before {fmtDateTime(order.paymentHoldExpiresAt)}
+                    </p>
+                  )}
+                </div>
+              </div>
+              {initiatePaymentError?.message && (
+                <p className="text-xs text-red-600 font-bold">{initiatePaymentError.message}</p>
+              )}
+              {holdExpired ? (
+                <p className="text-xs text-red-600 font-bold leading-relaxed">
+                  The payment window for this order has expired. Please place a new order.
+                </p>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleContinuePayment}
+                  disabled={initiatePaymentLoading}
+                  className="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-black text-white text-xs font-black uppercase tracking-widest px-6 py-3.5 rounded-2xl hover:bg-[#F7A221] hover:text-black transition-all disabled:opacity-50 cursor-pointer"
+                >
+                  {initiatePaymentLoading ? (
+                    <Loader2 size={16} className="animate-spin" />
+                  ) : (
+                    <CreditCard size={16} />
+                  )}
+                  Continue payment
+                </button>
+              )}
+            </div>
+          )}
       </div>
 
       {/* Items */}
@@ -362,6 +522,41 @@ const OrderDetail = ({ orderId, onBack, onCancel, isCancelling, cancelError }) =
           )}
         </div>
       )}
+
+      {showRazorpay && razorpayBundle && order && (
+        <RazorpayCheckout
+          key={razorpayBundle.order.id}
+          razorpayOrder={razorpayBundle.order}
+          razorpayKey={razorpayBundle.key}
+          orderId={order.orderId}
+          totalAmount={order.totalAmount}
+          userEmail={user?.email}
+          userName={user?.name || order.addressSnapshot?.fullName}
+          userPhone={order.addressSnapshot?.phone || user?.phone}
+          onSuccess={handleRazorpaySuccess}
+          onFailure={handleRazorpayFailure}
+          onClose={handleRazorpayClose}
+        />
+      )}
+
+      {paymentVerification.loading && (
+        <PaymentLoadingModal message="Verifying payment…" />
+      )}
+
+      {modalError && !paymentVerification.loading && !showRazorpay && (
+        <PaymentErrorModal
+          error={modalError}
+          onRetry={() => {
+            setRazorpayClientError(null);
+            dispatch(resetPaymentVerification());
+            handleContinuePayment();
+          }}
+          onClose={() => {
+            setRazorpayClientError(null);
+            dispatch(resetPaymentVerification());
+          }}
+        />
+      )}
     </div>
   );
 };
@@ -492,6 +687,11 @@ const UserOrders = () => {
                     <div className="mt-2">
                       <StatusBadge status={order.orderStatus} />
                     </div>
+                    {canResumeOnlinePayment(order) && (
+                      <p className="text-[10px] font-bold text-amber-700 mt-2">
+                        Online payment pending — open to complete checkout
+                      </p>
+                    )}
                   </div>
                 </div>
 

@@ -73,6 +73,34 @@ export const cancelOrder = createAsyncThunk(
   }
 );
 
+/**
+ * POST /api/orders/items/:orderId/initiate-payment
+ * Retry Razorpay checkout for an unpaid online order (same user as order owner).
+ */
+export const initiatePendingOrderPayment = createAsyncThunk(
+  "orders/initiatePendingPayment",
+  async (orderId, { rejectWithValue }) => {
+    try {
+      const res = await axiosInstance.post(
+        `/orders/items/${encodeURIComponent(String(orderId))}/initiate-payment`
+      );
+      if (!res.data.success) throw new Error(res.data.message || "Could not start payment");
+      return res.data;
+    } catch (err) {
+      const msg =
+        err.response?.data?.message ||
+        err.response?.data?.error ||
+        err.message ||
+        "Could not start payment";
+      return rejectWithValue({
+        message: msg,
+        code: err.response?.data?.code,
+        status: err.response?.status,
+      });
+    }
+  }
+);
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Initial State
 // ─────────────────────────────────────────────────────────────────────────────
@@ -86,12 +114,14 @@ const initialState = {
     fetchOne: false,
     track: false,
     cancel: false,
+    initiatePayment: false,
   },
   error: {
     fetch: null,
     fetchOne: null,
     track: null,
     cancel: null,
+    initiatePayment: null,
   },
 };
 
@@ -103,7 +133,7 @@ const orderSlice = createSlice({
   initialState,
   reducers: {
     clearOrderErrors: (state) => {
-      state.error = initialState.error;
+      state.error = { ...initialState.error };
     },
     clearActiveOrder: (state) => {
       state.activeOrder = null;
@@ -185,6 +215,20 @@ const orderSlice = createSlice({
       .addCase(cancelOrder.rejected, (state, action) => {
         state.loading.cancel = false;
         state.error.cancel = action.payload || { message: "Failed to cancel order" };
+      })
+
+      // ── initiatePendingOrderPayment ─────────────────────────────────────
+      .addCase(initiatePendingOrderPayment.pending, (state) => {
+        state.loading.initiatePayment = true;
+        state.error.initiatePayment = null;
+      })
+      .addCase(initiatePendingOrderPayment.fulfilled, (state) => {
+        state.loading.initiatePayment = false;
+        state.error.initiatePayment = null;
+      })
+      .addCase(initiatePendingOrderPayment.rejected, (state, action) => {
+        state.loading.initiatePayment = false;
+        state.error.initiatePayment = action.payload || { message: "Could not start payment" };
       });
   },
 });

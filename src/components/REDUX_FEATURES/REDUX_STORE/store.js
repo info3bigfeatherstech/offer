@@ -10,7 +10,9 @@ import { userAnalyticsApi } from "../../ADMIN_SEGMENT/ADMIN_REDUX_MANAGEMENT/use
 import adminAuthReducer from "../../ADMIN_SEGMENT/ADMIN_REDUX_MANAGEMENT/adminAuthSlice";
 import { adminAuthApi } from "../../ADMIN_SEGMENT/ADMIN_REDUX_MANAGEMENT/adminAuthApi";
 import { seoAnalyticsApi, seoUiReducer } from "../../ADMIN_SEGMENT/ADMIN_REDUX_MANAGEMENT/adminSeoAnalytics";
-
+import adminOrdersUiReducer from "../../ADMIN_SEGMENT/ADMIN_REDUX_MANAGEMENT/order_management/adminOrdersSlice";
+import { adminOrdersApi } from "../../ADMIN_SEGMENT/ADMIN_REDUX_MANAGEMENT/order_management/adminOrdersApi";
+import staffReducer from "../../ADMIN_SEGMENT/ADMIN_REDUX_MANAGEMENT/staffSlice";
 // USER REDUCER 
 import userProductsReducer from "../REDUX_SLICES/userProductsSlice";
 import userCategoriesReducer from "../REDUX_SLICES/userCategoriesSlice";
@@ -25,6 +27,7 @@ const store = configureStore({
   reducer: {
     auth: authReducer,   //user authentication reducer
     adminProductCreate: adminProductCreateReducer,
+    staff: staffReducer,
     adminGetProducts: adminGetProductsReducer,
     adminEditProduct: adminEditProductReducer,
     adminArchived: adminArchivedReducer,
@@ -35,6 +38,8 @@ const store = configureStore({
     [userAnalyticsApi.reducerPath]: userAnalyticsApi.reducer,
     [seoAnalyticsApi.reducerPath]: seoAnalyticsApi.reducer,
     seoUi: seoUiReducer,
+    adminOrdersUi: adminOrdersUiReducer,
+    [adminOrdersApi.reducerPath]: adminOrdersApi.reducer,
 
 
 
@@ -50,7 +55,13 @@ const store = configureStore({
 
   },
   middleware: (getDefaultMiddleware) =>
-    getDefaultMiddleware().concat(searchApi.middleware, userAnalyticsApi.middleware, adminAuthApi.middleware, seoAnalyticsApi.middleware),
+    getDefaultMiddleware().concat(
+      searchApi.middleware,
+      userAnalyticsApi.middleware,
+      adminAuthApi.middleware,
+      seoAnalyticsApi.middleware,
+      adminOrdersApi.middleware
+    ),
   devTools: import.meta.env.MODE !== "production", // Redux DevTools only in dev
 });
 

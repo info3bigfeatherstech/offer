@@ -843,6 +843,12 @@ const CartSidebar = ({ isOpen, onClose, onOpenAuth, user }) => {
 };
 
 export default CartSidebar;
+
+
+
+
+
+
 //fix the code navigation issue click on image and title only navigate to product page, not on qty update or remove
 
 //  import React, { useEffect, useMemo, useState } from 'react';
