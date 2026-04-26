@@ -1,87 +1,80 @@
-// Path: components/ADMIN_SEGMENT/ADMIN_REDUX_MANAGEMENT/adminAuthApi.js
-import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
-import { ROLES } from '../roles';
+// adminAuthApi.js — replace fetchBaseQuery entirely
+
+import { createApi }  from '@reduxjs/toolkit/query/react';
+import axiosInstance  from '../../../SERVICES/axiosInstance'; // your existing instance
+import { ROLES }      from '../roles';
 
 const ADMIN_ROLES = Object.values(ROLES);
 
-// Helper to get token
-const getToken = () => localStorage.getItem('accessToken');
+// ✅ Wrap axiosInstance so RTK Query can use it
+// This means ALL admin API calls now go through your refresh interceptor
+const axiosBaseQuery = () => async ({ url, method = 'GET', body, params }) => {
+    try {
+        const result = await axiosInstance({
+            url,
+            method,
+            data: body,
+            params,
+        });
+        return { data: result.data };
+    } catch (axiosError) {
+        return {
+            error: {
+                status: axiosError.response?.status,
+                data:   axiosError.response?.data || axiosError.message,
+            },
+        };
+    }
+};
 
 export const adminAuthApi = createApi({
-  reducerPath: 'adminAuthApi',
-  baseQuery: fetchBaseQuery({
-    baseUrl: import.meta.env.VITE_BACKEND_BASE_URL || 'http://localhost:8081/api',
-    prepareHeaders: (headers) => {
-      const token = getToken();
-      if (token) {
-        headers.set('authorization', `Bearer ${token}`);
-      }
-      return headers;
-    },
-    credentials: 'include', // Important for cookies
-  }),
-  tagTypes: ['AdminUser'],
-  endpoints: (builder) => ({
-    // ── Get current admin user (rehydrates session) ──
-    getAdminMe: builder.query({
-      query: () => '/auth/me',
-      providesTags: ['AdminUser'],
-      // Only run if token exists
-      skip: () => !getToken(),
-      transformResponse: (response) => {
-        const user = response?.user;
-        // Validate admin role
-        if (!user?.role || !ADMIN_ROLES.includes(user.role)) {
-          throw new Error('insufficient_role');
-        }
-        return user;
-      },
-    }),
+    reducerPath: 'adminAuthApi',
+    baseQuery:   axiosBaseQuery(),   // ✅ uses your interceptor — single refresh point
+    tagTypes:    ['AdminUser'],
+    endpoints:   (builder) => ({
 
-    // ── Admin login ──
-    adminLogin: builder.mutation({
-      query: (credentials) => ({
-        url: '/auth/login',
-        method: 'POST',
-        body: credentials,
-      }),
-      transformResponse: (response) => {
-        const { accessToken, user } = response;
-        
-        // Role validation
-        if (!user?.role || !ADMIN_ROLES.includes(user.role)) {
-          throw new Error('Access denied. Insufficient permissions.');
-        }
-        
-        // Store token
-        if (accessToken) {
-          localStorage.setItem('accessToken', accessToken);
-        }
-        
-        return user;
-      },
-      invalidatesTags: ['AdminUser'],
-    }),
+        getAdminMe: builder.query({
+            query: () => ({ url: '/auth/me' }),
+            providesTags: ['AdminUser'],
+            transformResponse: (response) => {
+                const user = response?.user;
+                if (!user?.role || !ADMIN_ROLES.includes(user.role)) {
+                    throw new Error('insufficient_role');
+                }
+                return user;
+            },
+        }),
 
-    // ── Admin logout ──
-    adminLogout: builder.mutation({
-      query: () => ({
-        url: '/auth/logout',
-        method: 'POST',
-      }),
-      transformResponse: (response) => {
-        // Always clear token even if API fails
-        localStorage.removeItem('accessToken');
-        return response;
-      },
-      invalidatesTags: ['AdminUser'],
+        adminLogin: builder.mutation({
+            query: (credentials) => ({
+                url:    '/auth/login',
+                method: 'POST',
+                body:   credentials,
+            }),
+            transformResponse: (response) => {
+                const { accessToken, user } = response;
+                if (!user?.role || !ADMIN_ROLES.includes(user.role)) {
+                    throw new Error('Access denied. Insufficient permissions.');
+                }
+                if (accessToken) localStorage.setItem('accessToken', accessToken);
+                return user;
+            },
+            invalidatesTags: ['AdminUser'],
+        }),
+
+        adminLogout: builder.mutation({
+            query: () => ({ url: '/auth/logout', method: 'POST' }),
+            transformResponse: (response) => {
+                localStorage.removeItem('accessToken');
+                return response;
+            },
+            invalidatesTags: ['AdminUser'],
+        }),
     }),
-  }),
 });
 
-// Export auto-generated hooks
 export const {
-  useGetAdminMeQuery,
-  useAdminLoginMutation,
-  useAdminLogoutMutation,
+    useGetAdminMeQuery,
+    useAdminLoginMutation,
+    useAdminLogoutMutation,
 } = adminAuthApi;

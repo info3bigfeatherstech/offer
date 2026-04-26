@@ -1,321 +1,528 @@
-// components/ADMIN_SEGMENT/ADMIN_LOGIN_SEGMENT/AdminLogin.jsx
-// ─────────────────────────────────────────────────────────────────────────────
-// Admin-only login page.
-//
-// LOCKOUT SEQUENCE (matches user Login component pattern):
-//   Attempt 1 wrong → show warning, 2 attempts left
-//   Attempt 2 wrong → show warning, 1 attempt left
-//   Attempt 3 wrong → LOCK 30s
-//   Attempt 4 wrong (after lockout expires) → LOCK 60s
-//   Attempt 5+ wrong → LOCK 300s (5 min), stays at 300s permanently
-//
-// Lockout is persisted to localStorage under "lr_admin_lock" so a page
-// refresh does NOT reset the countdown.
-//
-// REDIRECT AFTER LOGIN:
-//   If the user was bounced here from a protected route (e.g. direct URL hit),
-//   we send them back to where they tried to go (location.state.from).
-//   Default destination is /babapanel.
-// ─────────────────────────────────────────────────────────────────────────────
-
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { useDispatch, useSelector } from "react-redux";
 import { toast } from "react-toastify";
 import { ShieldAlert, Lock, User } from "lucide-react";
 import { useAdminLoginMutation } from "../ADMIN_REDUX_MANAGEMENT/adminAuthApi";
-import {
-  selectAdminStatus,
-  selectIsAdminAuth,
-} from "../ADMIN_REDUX_MANAGEMENT/adminAuthSlice";
+import { selectAdminStatus, selectIsAdminAuth } from "../ADMIN_REDUX_MANAGEMENT/adminAuthSlice";
+import { useSelector } from "react-redux";
 import LOGO from "../../../assets/logo2.png";
 
-// ── Progressive lockout constants ────────────────────────────────────────────
+// ── Lockout helpers ───────────────────────────────────────────────────────────
 const LOCKOUT_SEQUENCE = [0, 0, 0, 30, 60, 300];
+const getLockDuration  = (n) => LOCKOUT_SEQUENCE[Math.min(n, LOCKOUT_SEQUENCE.length - 1)];
+const STORAGE_KEY      = "lr_admin_lock";
 
-const getLockDuration = (failCount) =>
-  LOCKOUT_SEQUENCE[Math.min(failCount, LOCKOUT_SEQUENCE.length - 1)];
-
-const STORAGE_KEY = "lr_admin_lock";
-
-const readLock = () => {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
-  } catch {
-    return null;
-  }
-};
-
-const writeLock = (data) => {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  } catch {}
-};
-
-const clearLock = () => {
-  try {
-    localStorage.removeItem(STORAGE_KEY);
-  } catch {}
-};
+const readLock  = () => { try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "null"); } catch { return null; } };
+const writeLock = (d) => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)); } catch {} };
+const clearLock = ()  => { try { localStorage.removeItem(STORAGE_KEY); } catch {} };
 
 const formatLockTime = (s) => {
-  if (s >= 60) {
-    const m = Math.floor(s / 60);
-    const r = s % 60;
-    return r > 0 ? `${m}m ${r}s` : `${m}m`;
-  }
-  return `${s}s`;
+    if (s >= 60) { const m = Math.floor(s / 60), r = s % 60; return r > 0 ? `${m}m ${r}s` : `${m}m`; }
+    return `${s}s`;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
 
 const AdminLogin = () => {
-  const navigate = useNavigate();
-  const location = useLocation();
-  const dispatch = useDispatch();
+    const navigate   = useNavigate();
+    const location   = useLocation();
 
-  const isAlreadyAuth = useSelector(selectIsAdminAuth);
-  const adminStatus = useSelector(selectAdminStatus);
+    const isAlreadyAuth = useSelector(selectIsAdminAuth);
+    const adminStatus   = useSelector(selectAdminStatus);
 
-  const [adminLogin, { isLoading }] = useAdminLoginMutation();
+    const [adminLogin, { isLoading }] = useAdminLoginMutation();
 
-  // Form state
-  const [identifier, setIdentifier] = useState("");
-  const [password, setPassword] = useState("");
+    const [identifier,      setIdentifier]      = useState("");
+    const [password,        setPassword]        = useState("");
+    const [lockSecondsLeft, setLockSecondsLeft] = useState(0);
+    const [failCount,       setFailCount]       = useState(0);
 
-  // Lockout state
-  const [lockSecondsLeft, setLockSecondsLeft] = useState(0);
-  const [failCount, setFailCount] = useState(0);
-  const lockTimerRef = useRef(null);
-  const hasRedirected = useRef(false);
+    const lockTimerRef    = useRef(null);
+    const hasRedirected   = useRef(false);
+    // ✅ capture destination ONCE on mount — never read location.state in effects
+    const destinationRef  = useRef(location.state?.from || "/babapanel");
 
-  // ── If already authenticated, skip login and go to dashboard ────────────
-  useEffect(() => {
-    if (isAlreadyAuth && !hasRedirected.current) {
-      hasRedirected.current = true;
-      const destination = location.state?.from || "/babapanel";
-      navigate(destination, { replace: true });
-    }
-  }, [isAlreadyAuth, navigate, location.state]);
+    // ── Redirect if already authenticated ────────────────────────────────
+    // ✅ NO location.state in deps — captured in ref above
+    useEffect(() => {
+        if (isAlreadyAuth && !hasRedirected.current) {
+            hasRedirected.current = true;
+            navigate(destinationRef.current, { replace: true });
+        }
+    }, [isAlreadyAuth, navigate]);
 
-  // ── Rehydrate lockout from localStorage on mount ─────────────────────────
-  useEffect(() => {
-    const saved = readLock();
-    if (saved) {
-      const remaining = Math.ceil((saved.unlocksAt - Date.now()) / 1000);
-      if (remaining > 0) {
-        setFailCount(saved.failCount);
-        setLockSecondsLeft(remaining);
-      } else {
-        clearLock();
-      }
-    }
+    // ── Rehydrate lockout on mount ────────────────────────────────────────
+    useEffect(() => {
+        const saved = readLock();
+        if (saved) {
+            const remaining = Math.ceil((saved.unlocksAt - Date.now()) / 1000);
+            if (remaining > 0) {
+                setFailCount(saved.failCount);
+                setLockSecondsLeft(remaining);
+            } else {
+                clearLock();
+            }
+        }
+        return () => { if (lockTimerRef.current) clearInterval(lockTimerRef.current); };
+    }, []); // ✅ mount only
 
-    return () => {
-      if (lockTimerRef.current) {
-        clearInterval(lockTimerRef.current);
-      }
+    // ── Countdown ticker ──────────────────────────────────────────────────
+    useEffect(() => {
+        if (lockTimerRef.current) clearInterval(lockTimerRef.current);
+        if (lockSecondsLeft > 0) {
+            lockTimerRef.current = setInterval(() => {
+                setLockSecondsLeft((s) => {
+                    if (s <= 1) { clearInterval(lockTimerRef.current); clearLock(); return 0; }
+                    return s - 1;
+                });
+            }, 1000);
+        }
+        return () => { if (lockTimerRef.current) clearInterval(lockTimerRef.current); };
+    }, [lockSecondsLeft]);
+
+    const startLock = (newFailCount) => {
+        const duration = getLockDuration(newFailCount);
+        if (duration > 0) {
+            writeLock({ failCount: newFailCount, unlocksAt: Date.now() + duration * 1000 });
+            setLockSecondsLeft(duration);
+        }
     };
-  }, []);
 
-  // ── Countdown ticker ─────────────────────────────────────────────────────
-  useEffect(() => {
-    if (lockTimerRef.current) {
-      clearInterval(lockTimerRef.current);
-    }
-
-    if (lockSecondsLeft > 0) {
-      lockTimerRef.current = setInterval(() => {
-        setLockSecondsLeft((s) => {
-          if (s <= 1) {
-            clearInterval(lockTimerRef.current);
+    const handleLogin = async (e) => {
+        e.preventDefault();
+        if (lockSecondsLeft > 0 || isLoading) return;
+        try {
+            await adminLogin({ identifier, password }).unwrap();
             clearLock();
-            return 0;
-          }
-          return s - 1;
-        });
-      }, 1000);
-    }
-
-    return () => {
-      if (lockTimerRef.current) {
-        clearInterval(lockTimerRef.current);
-      }
+            setFailCount(0);
+            setLockSecondsLeft(0);
+            toast.success(`Welcome back ${identifier}!`);
+            navigate(destinationRef.current, { replace: true });
+        } catch (err) {
+            const newFail   = failCount + 1;
+            const duration  = getLockDuration(newFail);
+            const serverMsg = err?.data?.message || err?.message || "Invalid credentials.";
+            setFailCount(newFail);
+            startLock(newFail);
+            toast.error(duration > 0 ? `Too many attempts. Locked for ${formatLockTime(duration)}.` : serverMsg);
+        }
     };
-  }, [lockSecondsLeft]);
 
-  const startLock = (newFailCount) => {
-    const duration = getLockDuration(newFailCount);
-    if (duration > 0) {
-      const unlocksAt = Date.now() + duration * 1000;
-      writeLock({ failCount: newFailCount, unlocksAt });
-      setLockSecondsLeft(duration);
-    }
-  };
-
-  // ── Submit ────────────────────────────────────────────────────────────────
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    if (lockSecondsLeft > 0 || isLoading) return;
-
-    try {
-      await adminLogin({ identifier, password }).unwrap();
-
-      clearLock();
-      setFailCount(0);
-      setLockSecondsLeft(0);
-      toast.success(`Welcome back ${identifier}!`);
-
-      const destination = location.state?.from || "/babapanel";
-      navigate(destination, { replace: true });
-    } catch (err) {
-      const newFail = failCount + 1;
-      setFailCount(newFail);
-      startLock(newFail);
-
-      const duration = getLockDuration(newFail);
-      const serverMsg = err?.data?.message || err?.message || "Invalid credentials.";
-
-      if (duration > 0) {
-        toast.error(`Too many attempts. Locked for ${formatLockTime(duration)}.`);
-      } else {
-        toast.error(serverMsg);
-      }
-    }
-  };
-
-  const isLocked = lockSecondsLeft > 0;
-  const attemptsBeforeLock = 3;
-  const attemptsLeft = attemptsBeforeLock - failCount;
-  const showWarning = failCount > 0 && failCount < attemptsBeforeLock && !isLocked;
-
-  // ── Don't flash the form while checking an existing session ─────────────
-  if (adminStatus === "loading") {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-black">
-        <div className="w-9 h-9 border-3 border-[#1f1f1f] border-t-[#f7a221] rounded-full animate-spin" />
-      </div>
-    );
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-black p-6">
-      {/* Card */}
-      <div className="bg-[#0d0d0d] rounded-3xl border border-[#1f1f1f] p-12 w-full max-w-[420px] shadow-2xl">
-        {/* Logo */}
-        <img
-          src={LOGO}
-          alt="logo"
-          className="h-7 block mx-auto mb-7"
-        />
-
-        {/* Heading */}
-        <h2 className="text-center text-white text-[28px] font-extrabold tracking-tight mb-1">
-          ADMIN <span className="text-[#f7a221]">ACCESS</span>
-        </h2>
-        <p className="text-center text-[#555] text-[10px] font-bold tracking-[0.25em] uppercase mb-7">
-          Restricted area — authorised personnel only
-        </p>
-
-        {/* ── Lockout banner ───────────────────────────────────────────── */}
-        {isLocked && (
-          <div className="mb-5 p-3.5 bg-red-500/10 border border-red-500/20 rounded-xl flex items-start gap-2.5">
-            <ShieldAlert size={16} color="#ef4444" className="mt-px flex-shrink-0" />
-            <div>
-              <p className="text-red-500 text-[11px] font-extrabold tracking-[0.15em] uppercase mb-0.5">
-                Account temporarily locked
-              </p>
-              <p className="text-red-500/60 text-[11px] m-0">
-                Try again in{" "}
-                <span className="font-extrabold text-red-500">
-                  {formatLockTime(lockSecondsLeft)}
-                </span>
-              </p>
+    // ── Show spinner while session check is in progress ──────────────────
+    if (adminStatus === "loading" || adminStatus === "idle") {
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-black">
+                <div className="w-9 h-9 border-[3px] border-[#1f1f1f] border-t-[#f7a221] rounded-full animate-spin" />
             </div>
-          </div>
-        )}
+        );
+    }
 
-        {/* ── Attempts warning (before first lockout) ──────────────────── */}
-        {showWarning && (
-          <div className="mb-4 p-2.5 bg-[#f7a221]/10 border border-[#f7a221]/20 rounded-xl text-center">
-            <p className="text-[#f7a221]/80 text-[11px] font-bold tracking-[0.05em] m-0">
-              {attemptsLeft} attempt{attemptsLeft !== 1 ? "s" : ""} left before lockout
-            </p>
-          </div>
-        )}
+    // ── If already auth, show spinner while redirect is pending ──────────
+    if (isAlreadyAuth) {
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-black">
+                <div className="w-9 h-9 border-[3px] border-[#1f1f1f] border-t-[#f7a221] rounded-full animate-spin" />
+            </div>
+        );
+    }
 
-        {/* ── Form ─────────────────────────────────────────────────────── */}
-        <form onSubmit={handleLogin} className="flex flex-col gap-3">
-          {/* Identifier input */}
-          <div className="relative">
-            <User
-              size={16}
-              color="rgba(255,255,255,0.2)"
-              className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none"
-            />
-            <input
-              type="text"
-              placeholder="Email or Phone Number"
-              value={identifier}
-              onChange={(e) => setIdentifier(e.target.value)}
-              disabled={isLocked}
-              required
-              className={`w-full box-border bg-white/5 border border-white/10 rounded-xl py-4 px-4 pl-11 text-white text-sm outline-none transition-colors focus:border-[#f7a221] ${
-                isLocked ? "opacity-40" : ""
-              }`}
-            />
-          </div>
+    const isLocked        = lockSecondsLeft > 0;
+    const attemptsLeft    = 3 - failCount;
+    const showWarning     = failCount > 0 && failCount < 3 && !isLocked;
 
-          {/* Password input */}
-          <div className="relative">
-            <Lock
-              size={16}
-              color="rgba(255,255,255,0.2)"
-              className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none"
-            />
-            <input
-              type="password"
-              placeholder="Password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete="current-password"
-              disabled={isLocked}
-              required
-              className={`w-full box-border bg-white/5 border border-white/10 rounded-xl py-4 px-4 pl-11 text-white text-sm outline-none transition-colors focus:border-[#f7a221] ${
-                isLocked ? "opacity-40" : ""
-              }`}
-            />
-          </div>
+    return (
+        <div className="min-h-screen flex items-center justify-center bg-black p-6">
+            <div className="bg-[#0d0d0d] rounded-3xl border border-[#1f1f1f] p-12 w-full max-w-[420px] shadow-2xl">
 
-          {/* Submit */}
-          <button
-            type="submit"
-            disabled={isLoading || isLocked}
-            className={`mt-1 w-full rounded-xl py-[17px] font-extrabold text-[13px] tracking-[0.12em] uppercase transition-all ${
-              isLocked
-                ? "bg-[#1f1f1f] text-[#555] cursor-not-allowed"
-                : "bg-[#f7a221] text-black hover:bg-[#f7a221]/90 cursor-pointer shadow-lg shadow-[#f7a221]/20"
-            } ${isLoading ? "opacity-70" : ""}`}
-          >
-            {isLoading
-              ? "Verifying…"
-              : isLocked
-              ? `Locked — ${formatLockTime(lockSecondsLeft)}`
-              : "Sign in to Dashboard"}
-          </button>
-        </form>
+                <img src={LOGO} alt="logo" className="h-7 block mx-auto mb-7" />
 
-        {/* Security note */}
-        <p className="text-center text-[#2a2a2a] text-[10px] font-semibold tracking-[0.1em] uppercase mt-6 mb-0">
-          All access attempts are logged
-        </p>
-      </div>
-    </div>
-  );
+                <h2 className="text-center text-white text-[28px] font-extrabold tracking-tight mb-1">
+                    ADMIN <span className="text-[#f7a221]">ACCESS</span>
+                </h2>
+                <p className="text-center text-[#555] text-[10px] font-bold tracking-[0.25em] uppercase mb-7">
+                    Restricted area — authorised personnel only
+                </p>
+
+                {isLocked && (
+                    <div className="mb-5 p-3.5 bg-red-500/10 border border-red-500/20 rounded-xl flex items-start gap-2.5">
+                        <ShieldAlert size={16} color="#ef4444" className="mt-px flex-shrink-0" />
+                        <div>
+                            <p className="text-red-500 text-[11px] font-extrabold tracking-[0.15em] uppercase mb-0.5">
+                                Account temporarily locked
+                            </p>
+                            <p className="text-red-500/60 text-[11px] m-0">
+                                Try again in <span className="font-extrabold text-red-500">{formatLockTime(lockSecondsLeft)}</span>
+                            </p>
+                        </div>
+                    </div>
+                )}
+
+                {showWarning && (
+                    <div className="mb-4 p-2.5 bg-[#f7a221]/10 border border-[#f7a221]/20 rounded-xl text-center">
+                        <p className="text-[#f7a221]/80 text-[11px] font-bold tracking-[0.05em] m-0">
+                            {attemptsLeft} attempt{attemptsLeft !== 1 ? "s" : ""} left before lockout
+                        </p>
+                    </div>
+                )}
+
+                <form onSubmit={handleLogin} className="flex flex-col gap-3">
+                    <div className="relative">
+                        <User size={16} color="rgba(255,255,255,0.2)"
+                            className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        <input type="text" placeholder="Email or Phone Number"
+                            value={identifier} onChange={(e) => setIdentifier(e.target.value)}
+                            disabled={isLocked} required
+                            className={`w-full box-border bg-white/5 border border-white/10 rounded-xl py-4 px-4 pl-11 text-white text-sm outline-none transition-colors focus:border-[#f7a221] ${isLocked ? "opacity-40" : ""}`}
+                        />
+                    </div>
+
+                    <div className="relative">
+                        <Lock size={16} color="rgba(255,255,255,0.2)"
+                            className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        <input type="password" placeholder="Password"
+                            value={password} onChange={(e) => setPassword(e.target.value)}
+                            autoComplete="current-password" disabled={isLocked} required
+                            className={`w-full box-border bg-white/5 border border-white/10 rounded-xl py-4 px-4 pl-11 text-white text-sm outline-none transition-colors focus:border-[#f7a221] ${isLocked ? "opacity-40" : ""}`}
+                        />
+                    </div>
+
+                    <button type="submit" disabled={isLoading || isLocked}
+                        className={`mt-1 w-full rounded-xl py-[17px] font-extrabold text-[13px] tracking-[0.12em] uppercase transition-all ${
+                            isLocked ? "bg-[#1f1f1f] text-[#555] cursor-not-allowed"
+                                     : "bg-[#f7a221] text-black hover:bg-[#f7a221]/90 cursor-pointer shadow-lg shadow-[#f7a221]/20"
+                        } ${isLoading ? "opacity-70" : ""}`}>
+                        {isLoading ? "Verifying…" : isLocked ? `Locked — ${formatLockTime(lockSecondsLeft)}` : "Sign in to Dashboard"}
+                    </button>
+                </form>
+
+                <p className="text-center text-[#2a2a2a] text-[10px] font-semibold tracking-[0.1em] uppercase mt-6 mb-0">
+                    All access attempts are logged
+                </p>
+            </div>
+        </div>
+    );
 };
 
 export default AdminLogin;
+
+// // components/ADMIN_SEGMENT/ADMIN_LOGIN_SEGMENT/AdminLogin.jsx
+// // ─────────────────────────────────────────────────────────────────────────────
+// // Admin-only login page.
+// //
+// // LOCKOUT SEQUENCE (matches user Login component pattern):
+// //   Attempt 1 wrong → show warning, 2 attempts left
+// //   Attempt 2 wrong → show warning, 1 attempt left
+// //   Attempt 3 wrong → LOCK 30s
+// //   Attempt 4 wrong (after lockout expires) → LOCK 60s
+// //   Attempt 5+ wrong → LOCK 300s (5 min), stays at 300s permanently
+// //
+// // Lockout is persisted to localStorage under "lr_admin_lock" so a page
+// // refresh does NOT reset the countdown.
+// //
+// // REDIRECT AFTER LOGIN:
+// //   If the user was bounced here from a protected route (e.g. direct URL hit),
+// //   we send them back to where they tried to go (location.state.from).
+// //   Default destination is /babapanel.
+// // ─────────────────────────────────────────────────────────────────────────────
+
+// import { useState, useEffect, useRef } from "react";
+// import { useNavigate, useLocation } from "react-router-dom";
+// import { useDispatch, useSelector } from "react-redux";
+// import { toast } from "react-toastify";
+// import { ShieldAlert, Lock, User } from "lucide-react";
+// import { useAdminLoginMutation } from "../ADMIN_REDUX_MANAGEMENT/adminAuthApi";
+// import {
+//   selectAdminStatus,
+//   selectIsAdminAuth,
+// } from "../ADMIN_REDUX_MANAGEMENT/adminAuthSlice";
+// import LOGO from "../../../assets/logo2.png";
+
+// // ── Progressive lockout constants ────────────────────────────────────────────
+// const LOCKOUT_SEQUENCE = [0, 0, 0, 30, 60, 300];
+
+// const getLockDuration = (failCount) =>
+//   LOCKOUT_SEQUENCE[Math.min(failCount, LOCKOUT_SEQUENCE.length - 1)];
+
+// const STORAGE_KEY = "lr_admin_lock";
+
+// const readLock = () => {
+//   try {
+//     return JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
+//   } catch {
+//     return null;
+//   }
+// };
+
+// const writeLock = (data) => {
+//   try {
+//     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+//   } catch {}
+// };
+
+// const clearLock = () => {
+//   try {
+//     localStorage.removeItem(STORAGE_KEY);
+//   } catch {}
+// };
+
+// const formatLockTime = (s) => {
+//   if (s >= 60) {
+//     const m = Math.floor(s / 60);
+//     const r = s % 60;
+//     return r > 0 ? `${m}m ${r}s` : `${m}m`;
+//   }
+//   return `${s}s`;
+// };
+
+// // ─────────────────────────────────────────────────────────────────────────────
+
+// const AdminLogin = () => {
+//   const navigate = useNavigate();
+//   const location = useLocation();
+//   const dispatch = useDispatch();
+
+//   const isAlreadyAuth = useSelector(selectIsAdminAuth);
+//   const adminStatus = useSelector(selectAdminStatus);
+
+//   const [adminLogin, { isLoading }] = useAdminLoginMutation();
+
+//   // Form state
+//   const [identifier, setIdentifier] = useState("");
+//   const [password, setPassword] = useState("");
+
+//   // Lockout state
+//   const [lockSecondsLeft, setLockSecondsLeft] = useState(0);
+//   const [failCount, setFailCount] = useState(0);
+//   const lockTimerRef = useRef(null);
+//   const hasRedirected = useRef(false);
+
+//   // ── If already authenticated, skip login and go to dashboard ────────────
+//   useEffect(() => {
+//     if (isAlreadyAuth && !hasRedirected.current) {
+//       hasRedirected.current = true;
+//       const destination = location.state?.from || "/babapanel";
+//       navigate(destination, { replace: true });
+//     }
+//   }, [isAlreadyAuth, navigate, location.state]);
+
+//   // ── Rehydrate lockout from localStorage on mount ─────────────────────────
+//   useEffect(() => {
+//     const saved = readLock();
+//     if (saved) {
+//       const remaining = Math.ceil((saved.unlocksAt - Date.now()) / 1000);
+//       if (remaining > 0) {
+//         setFailCount(saved.failCount);
+//         setLockSecondsLeft(remaining);
+//       } else {
+//         clearLock();
+//       }
+//     }
+
+//     return () => {
+//       if (lockTimerRef.current) {
+//         clearInterval(lockTimerRef.current);
+//       }
+//     };
+//   }, []);
+
+//   // ── Countdown ticker ─────────────────────────────────────────────────────
+//   useEffect(() => {
+//     if (lockTimerRef.current) {
+//       clearInterval(lockTimerRef.current);
+//     }
+
+//     if (lockSecondsLeft > 0) {
+//       lockTimerRef.current = setInterval(() => {
+//         setLockSecondsLeft((s) => {
+//           if (s <= 1) {
+//             clearInterval(lockTimerRef.current);
+//             clearLock();
+//             return 0;
+//           }
+//           return s - 1;
+//         });
+//       }, 1000);
+//     }
+
+//     return () => {
+//       if (lockTimerRef.current) {
+//         clearInterval(lockTimerRef.current);
+//       }
+//     };
+//   }, [lockSecondsLeft]);
+
+//   const startLock = (newFailCount) => {
+//     const duration = getLockDuration(newFailCount);
+//     if (duration > 0) {
+//       const unlocksAt = Date.now() + duration * 1000;
+//       writeLock({ failCount: newFailCount, unlocksAt });
+//       setLockSecondsLeft(duration);
+//     }
+//   };
+
+//   // ── Submit ────────────────────────────────────────────────────────────────
+//   const handleLogin = async (e) => {
+//     e.preventDefault();
+//     if (lockSecondsLeft > 0 || isLoading) return;
+
+//     try {
+//       await adminLogin({ identifier, password }).unwrap();
+
+//       clearLock();
+//       setFailCount(0);
+//       setLockSecondsLeft(0);
+//       toast.success(`Welcome back ${identifier}!`);
+
+//       const destination = location.state?.from || "/babapanel";
+//       navigate(destination, { replace: true });
+//     } catch (err) {
+//       const newFail = failCount + 1;
+//       setFailCount(newFail);
+//       startLock(newFail);
+
+//       const duration = getLockDuration(newFail);
+//       const serverMsg = err?.data?.message || err?.message || "Invalid credentials.";
+
+//       if (duration > 0) {
+//         toast.error(`Too many attempts. Locked for ${formatLockTime(duration)}.`);
+//       } else {
+//         toast.error(serverMsg);
+//       }
+//     }
+//   };
+
+//   const isLocked = lockSecondsLeft > 0;
+//   const attemptsBeforeLock = 3;
+//   const attemptsLeft = attemptsBeforeLock - failCount;
+//   const showWarning = failCount > 0 && failCount < attemptsBeforeLock && !isLocked;
+
+//   // ── Don't flash the form while checking an existing session ─────────────
+//   if (adminStatus === "loading") {
+//     return (
+//       <div className="min-h-screen flex items-center justify-center bg-black">
+//         <div className="w-9 h-9 border-3 border-[#1f1f1f] border-t-[#f7a221] rounded-full animate-spin" />
+//       </div>
+//     );
+//   }
+
+//   // ─────────────────────────────────────────────────────────────────────────
+//   return (
+//     <div className="min-h-screen flex items-center justify-center bg-black p-6">
+//       {/* Card */}
+//       <div className="bg-[#0d0d0d] rounded-3xl border border-[#1f1f1f] p-12 w-full max-w-[420px] shadow-2xl">
+//         {/* Logo */}
+//         <img
+//           src={LOGO}
+//           alt="logo"
+//           className="h-7 block mx-auto mb-7"
+//         />
+
+//         {/* Heading */}
+//         <h2 className="text-center text-white text-[28px] font-extrabold tracking-tight mb-1">
+//           ADMIN <span className="text-[#f7a221]">ACCESS</span>
+//         </h2>
+//         <p className="text-center text-[#555] text-[10px] font-bold tracking-[0.25em] uppercase mb-7">
+//           Restricted area — authorised personnel only
+//         </p>
+
+//         {/* ── Lockout banner ───────────────────────────────────────────── */}
+//         {isLocked && (
+//           <div className="mb-5 p-3.5 bg-red-500/10 border border-red-500/20 rounded-xl flex items-start gap-2.5">
+//             <ShieldAlert size={16} color="#ef4444" className="mt-px flex-shrink-0" />
+//             <div>
+//               <p className="text-red-500 text-[11px] font-extrabold tracking-[0.15em] uppercase mb-0.5">
+//                 Account temporarily locked
+//               </p>
+//               <p className="text-red-500/60 text-[11px] m-0">
+//                 Try again in{" "}
+//                 <span className="font-extrabold text-red-500">
+//                   {formatLockTime(lockSecondsLeft)}
+//                 </span>
+//               </p>
+//             </div>
+//           </div>
+//         )}
+
+//         {/* ── Attempts warning (before first lockout) ──────────────────── */}
+//         {showWarning && (
+//           <div className="mb-4 p-2.5 bg-[#f7a221]/10 border border-[#f7a221]/20 rounded-xl text-center">
+//             <p className="text-[#f7a221]/80 text-[11px] font-bold tracking-[0.05em] m-0">
+//               {attemptsLeft} attempt{attemptsLeft !== 1 ? "s" : ""} left before lockout
+//             </p>
+//           </div>
+//         )}
+
+//         {/* ── Form ─────────────────────────────────────────────────────── */}
+//         <form onSubmit={handleLogin} className="flex flex-col gap-3">
+//           {/* Identifier input */}
+//           <div className="relative">
+//             <User
+//               size={16}
+//               color="rgba(255,255,255,0.2)"
+//               className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none"
+//             />
+//             <input
+//               type="text"
+//               placeholder="Email or Phone Number"
+//               value={identifier}
+//               onChange={(e) => setIdentifier(e.target.value)}
+//               disabled={isLocked}
+//               required
+//               className={`w-full box-border bg-white/5 border border-white/10 rounded-xl py-4 px-4 pl-11 text-white text-sm outline-none transition-colors focus:border-[#f7a221] ${
+//                 isLocked ? "opacity-40" : ""
+//               }`}
+//             />
+//           </div>
+
+//           {/* Password input */}
+//           <div className="relative">
+//             <Lock
+//               size={16}
+//               color="rgba(255,255,255,0.2)"
+//               className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none"
+//             />
+//             <input
+//               type="password"
+//               placeholder="Password"
+//               value={password}
+//               onChange={(e) => setPassword(e.target.value)}
+//               autoComplete="current-password"
+//               disabled={isLocked}
+//               required
+//               className={`w-full box-border bg-white/5 border border-white/10 rounded-xl py-4 px-4 pl-11 text-white text-sm outline-none transition-colors focus:border-[#f7a221] ${
+//                 isLocked ? "opacity-40" : ""
+//               }`}
+//             />
+//           </div>
+
+//           {/* Submit */}
+//           <button
+//             type="submit"
+//             disabled={isLoading || isLocked}
+//             className={`mt-1 w-full rounded-xl py-[17px] font-extrabold text-[13px] tracking-[0.12em] uppercase transition-all ${
+//               isLocked
+//                 ? "bg-[#1f1f1f] text-[#555] cursor-not-allowed"
+//                 : "bg-[#f7a221] text-black hover:bg-[#f7a221]/90 cursor-pointer shadow-lg shadow-[#f7a221]/20"
+//             } ${isLoading ? "opacity-70" : ""}`}
+//           >
+//             {isLoading
+//               ? "Verifying…"
+//               : isLocked
+//               ? `Locked — ${formatLockTime(lockSecondsLeft)}`
+//               : "Sign in to Dashboard"}
+//           </button>
+//         </form>
+
+//         {/* Security note */}
+//         <p className="text-center text-[#2a2a2a] text-[10px] font-semibold tracking-[0.1em] uppercase mt-6 mb-0">
+//           All access attempts are logged
+//         </p>
+//       </div>
+//     </div>
+//   );
+// };
+
+// export default AdminLogin;
 
 // // components/ADMIN_SEGMENT/AdminLogin.jsx
 // import { useState, useEffect } from "react";

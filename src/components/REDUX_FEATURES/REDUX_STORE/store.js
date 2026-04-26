@@ -13,6 +13,7 @@ import { seoAnalyticsApi, seoUiReducer } from "../../ADMIN_SEGMENT/ADMIN_REDUX_M
 import adminOrdersUiReducer from "../../ADMIN_SEGMENT/ADMIN_REDUX_MANAGEMENT/order_management/adminOrdersSlice";
 import { adminOrdersApi } from "../../ADMIN_SEGMENT/ADMIN_REDUX_MANAGEMENT/order_management/adminOrdersApi";
 import staffReducer from "../../ADMIN_SEGMENT/ADMIN_REDUX_MANAGEMENT/staffSlice";
+import { wholesalerApi } from "../../ADMIN_SEGMENT/ADMIN_REDUX_MANAGEMENT/wholesalerApi/wholesalerApi";
 // USER REDUCER 
 import userProductsReducer from "../REDUX_SLICES/userProductsSlice";
 import userCategoriesReducer from "../REDUX_SLICES/userCategoriesSlice";
@@ -40,6 +41,7 @@ const store = configureStore({
     seoUi: seoUiReducer,
     adminOrdersUi: adminOrdersUiReducer,
     [adminOrdersApi.reducerPath]: adminOrdersApi.reducer,
+    [wholesalerApi.reducerPath]: wholesalerApi.reducer,
 
 
 
@@ -60,7 +62,8 @@ const store = configureStore({
       userAnalyticsApi.middleware,
       adminAuthApi.middleware,
       seoAnalyticsApi.middleware,
-      adminOrdersApi.middleware
+      adminOrdersApi.middleware,
+      wholesalerApi.middleware,
     ),
   devTools: import.meta.env.MODE !== "production", // Redux DevTools only in dev
 });

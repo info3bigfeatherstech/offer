@@ -58,16 +58,23 @@ const AppContent = () => {
 
     // ── Cart & wishlist — fine here, they drive Navbar badges ────────────────
     // DO NOT call these again inside any tab component
-    useWishlistInit();
-    useCartInit();
+    // useWishlistInit();
+    // useCartInit();
+    // In App.jsx — also skip wishlist/cart on admin routes
+        useWishlistInit(!isAdminRoute);  // pass enabled flag
+        useCartInit(!isAdminRoute);
 
     // ── On app load: restore user session silently if token exists ────────────
     // This populates auth.user — UserDashboard sidebar reads from here directly
     // No separate profile fetch needed in UserDashboard
-    useEffect(() => {
-        const token = localStorage.getItem("accessToken");
-        if (token) dispatch(fetchMe());
-    }, [dispatch]);
+   // App.jsx — AppContent component
+            useEffect(() => {
+                const token = localStorage.getItem("accessToken");
+                // ✅ Don't run user fetchMe on admin routes — admin has its own auth system
+                if (token && !isAdminRoute) {
+                    dispatch(fetchMe());
+                }
+            }, [dispatch, isAdminRoute]);
 
     // ── Listen for forced logout (token refresh failure) — user auth ──────────
     // adminForceLogout is also dispatched here so both slices stay in sync
