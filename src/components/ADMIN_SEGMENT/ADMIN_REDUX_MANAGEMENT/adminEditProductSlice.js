@@ -17,6 +17,7 @@ const buildPriceObj = (price, label = "Base price") => {
 
   const priceObj = { base, sale };
 
+  // CRITICAL: wholesaleBase and wholesaleSale MUST be inside price object
   if (price?.wholesaleBase !== undefined && price?.wholesaleBase !== "") {
     priceObj.wholesaleBase = toNum(price.wholesaleBase) || 0;
   }
@@ -33,18 +34,32 @@ const buildInventoryObj = (inv) => ({
   trackInventory: inv?.trackInventory !== false,
 });
 
+// Helper to check if variant is wholesale eligible (SINGLE SOURCE OF TRUTH)
+export const isVariantWholesaleEligible = (variant) => {
+  if (!variant) return false;
+  const wholesaleFlag = variant.wholesale === true;
+  const wholesaleBase = variant.price?.wholesaleBase ? parseFloat(variant.price.wholesaleBase) : 0;
+  return wholesaleFlag && wholesaleBase > 0;
+};
+
+// Helper to get wholesale visibility (READ-ONLY, auto-calculated)
+export const getWholesaleVisibility = (variant) => {
+  return isVariantWholesaleEligible(variant) ? "active" : "draft";
+};
+
+// UPDATE PRODUCT - PRODUCT LEVEL ONLY (NO VARIANT DATA)
 export const updateProduct = createAsyncThunk(
   "adminEditProduct/update",
   async ({ slug, formData: pd }, { rejectWithValue }) => {
     try {
       const fd = new FormData();
 
+      // Product-level fields only - NO variant data here
       if (pd.name) fd.append("name", pd.name);
       if (pd.title) fd.append("title", pd.title);
       if (pd.description) fd.append("description", pd.description);
       if (pd.category) fd.append("category", pd.category);
       if (pd.brand) fd.append("brand", pd.brand);
-      if (pd.status) fd.append("status", pd.status);
       if (pd.isFeatured !== undefined) fd.append("isFeatured", String(pd.isFeatured));
       if (pd.hsnCode) fd.append("hsnCode", pd.hsnCode);
       if (pd.taxRate !== undefined && pd.taxRate !== "") fd.append("gstRate", String(pd.taxRate));
@@ -72,13 +87,30 @@ export const updateProduct = createAsyncThunk(
   }
 );
 
+// UPDATE VARIANT BY BARCODE - COMPLETE VARIANT UPDATE
+// This is the ONLY way to update variant data (price, inventory, images, channelVisibility)
 export const updateVariantByBarcode = createAsyncThunk(
   "adminVariants/updateByBarcode",
-  async ({ slug, barcode, price, inventory, attributes, isActive, images, wholesale, minimumOrderQuantity, channelVisibility }, { rejectWithValue }) => {
+  async (
+    { 
+      slug, 
+      barcode, 
+      price,           // MUST contain { base, sale, wholesaleBase, wholesaleSale }
+      inventory, 
+      attributes, 
+      isActive, 
+      images, 
+      wholesale, 
+      minimumOrderQuantity, 
+      channelVisibility 
+    }, 
+    { rejectWithValue }
+  ) => {
     try {
       const fd = new FormData();
       fd.append("productCode", String(barcode));
 
+      // Price - MUST be complete object with wholesale fields inside
       if (price !== undefined) {
         let pricePayload;
         try {
@@ -104,11 +136,12 @@ export const updateVariantByBarcode = createAsyncThunk(
       if (wholesale !== undefined) fd.append("wholesale", String(wholesale));
       if (minimumOrderQuantity !== undefined) fd.append("minimumOrderQuantity", String(minimumOrderQuantity));
 
-      // NEW: Add channelVisibility support
+      // CRITICAL: channelVisibility MUST be sent for every variant update
       if (channelVisibility !== undefined) {
         fd.append("channelVisibility", JSON.stringify(channelVisibility));
       }
 
+      // Images handling
       if (images !== undefined && images !== null) {
         const existingImages = images.filter((img) => img.url && !(img.file instanceof File));
         const newFiles = images.filter((img) => img.file instanceof File);
@@ -145,23 +178,6 @@ export const updateVariantByBarcode = createAsyncThunk(
   }
 );
 
-// NEW: Update variant channel visibility only
-export const updateVariantChannelVisibility = createAsyncThunk(
-  "adminVariants/updateChannelVisibility",
-  async ({ slug, productCode, channelVisibility }, { rejectWithValue }) => {
-    try {
-      const res = await axiosInstance.patch(
-        `/admin/products/${slug}/variants/${productCode}/channel-visibility`,
-        { channelVisibility }
-      );
-      if (res.data.success) return { product: res.data.product, variant: res.data.variant };
-      return rejectWithValue(res.data.message || "Channel visibility update failed");
-    } catch (err) {
-      return rejectWithValue(err.response?.data?.message || err.message);
-    }
-  }
-);
-
 export const addVariantToProduct = createAsyncThunk(
   "adminVariants/add",
   async ({ slug, variantData }, { rejectWithValue }) => {
@@ -190,7 +206,6 @@ export const addVariantToProduct = createAsyncThunk(
       fd.append("wholesale", variantData.wholesale ? "true" : "false");
       if (variantData.minimumOrderQuantity) fd.append("minimumOrderQuantity", String(variantData.minimumOrderQuantity));
 
-      // NEW: Add channelVisibility defaults
       if (variantData.channelVisibility) {
         fd.append("channelVisibility", JSON.stringify(variantData.channelVisibility));
       }
@@ -301,10 +316,6 @@ const adminEditProductSlice = createSlice({
       .addCase(updateVariantByBarcode.pending, (s) => { s.variantLoading = true; s.variantError = null; })
       .addCase(updateVariantByBarcode.fulfilled, (s) => { s.variantLoading = false; })
       .addCase(updateVariantByBarcode.rejected, (s, { payload }) => { s.variantLoading = false; s.variantError = payload; })
-
-      .addCase(updateVariantChannelVisibility.pending, (s) => { s.variantLoading = true; s.variantError = null; })
-      .addCase(updateVariantChannelVisibility.fulfilled, (s) => { s.variantLoading = false; })
-      .addCase(updateVariantChannelVisibility.rejected, (s, { payload }) => { s.variantLoading = false; s.variantError = payload; })
 
       .addCase(addVariantToProduct.pending, (s) => { s.variantLoading = true; s.variantError = null; })
       .addCase(addVariantToProduct.fulfilled, (s) => { s.variantLoading = false; })

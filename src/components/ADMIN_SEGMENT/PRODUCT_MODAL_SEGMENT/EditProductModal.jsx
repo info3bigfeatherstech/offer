@@ -12,10 +12,11 @@ import {
   updateProduct,
   addVariantToProduct,
   updateVariantByBarcode,
-  updateVariantChannelVisibility,
   deleteVariantFromProduct,
   resetUpdateSuccess,
   resetVariantError,
+  isVariantWholesaleEligible,
+  getWholesaleVisibility,
 } from "../ADMIN_REDUX_MANAGEMENT/adminEditProductSlice";
 
 const formatIndianRupee = (amount) =>
@@ -29,6 +30,7 @@ const getDiscountPercentage = (base, sale) => {
   return Math.round(((Number(base) - Number(sale)) / Number(base)) * 100);
 };
 
+// NORMALIZE: ALWAYS use price.wholesaleBase, NEVER direct wholesaleBase
 const normaliseVariants = (variants = []) =>
   variants.map((v, vIdx) => ({
     ...v,
@@ -48,8 +50,6 @@ const normaliseVariants = (variants = []) =>
       })),
     isActive: v.isActive !== false,
     wholesale: v.wholesale || false,
-    wholesaleBase: v.price?.wholesaleBase || "",
-    wholesaleSale: v.price?.wholesaleSale || "",
     minimumOrderQuantity: v.minimumOrderQuantity || 1,
     channelVisibility: v.channelVisibility || { ecomm: "active", wholesale: "draft" },
   }));
@@ -73,10 +73,6 @@ const toFormData = (product) => {
     variants: normaliseVariants(product.variants || []),
     isFeatured: product.isFeatured || false,
     status: product.status || "draft",
-    wholesale: mainVariant.wholesale || false,
-    wholesaleBase: mainVariant.price?.wholesaleBase || "",
-    wholesaleSale: mainVariant.price?.wholesaleSale || "",
-    minimumOrderQuantity: mainVariant.minimumOrderQuantity || 1,
   };
 };
 
@@ -119,13 +115,20 @@ const EditProductModal = ({ product, onClose, brands, setBrands }) => {
     setVariantForm({
       ProductCode: v.productCode != null ? String(v.productCode) : "",
       attributes: v.attributes?.length > 0 ? v.attributes.map((a) => ({ key: a.key || "", value: a.value || "" })) : [{ key: "", value: "" }],
-      price: { base: v.price?.base ?? "", sale: v.price?.sale ?? "", wholesaleBase: v.price?.wholesaleBase ?? "", wholesaleSale: v.price?.wholesaleSale ?? "" },
-      inventory: { quantity: v.inventory?.quantity ?? 0, lowStockThreshold: v.inventory?.lowStockThreshold ?? 5, trackInventory: v.inventory?.trackInventory !== false },
+      price: { 
+        base: v.price?.base ?? "", 
+        sale: v.price?.sale ?? "", 
+        wholesaleBase: v.price?.wholesaleBase ?? "", 
+        wholesaleSale: v.price?.wholesaleSale ?? "" 
+      },
+      inventory: {
+        quantity: v.inventory?.quantity ?? 0,
+        lowStockThreshold: v.inventory?.lowStockThreshold ?? 5,
+        trackInventory: v.inventory?.trackInventory !== false,
+      },
       images: v.images || [],
       isActive: v.isActive !== false,
       wholesale: v.wholesale || false,
-      wholesaleBase: v.price?.wholesaleBase || "",
-      wholesaleSale: v.price?.wholesaleSale || "",
       minimumOrderQuantity: v.minimumOrderQuantity || 1,
       channelVisibility: v.channelVisibility || { ecomm: "active", wholesale: "draft" },
     });
@@ -143,15 +146,20 @@ const EditProductModal = ({ product, onClose, brands, setBrands }) => {
   const handleVariantSave = async (variantToSave) => {
     setVariantSaveError(null);
 
+    // CRITICAL: Build price object with wholesaleBase INSIDE price
     const pricePayload = {
       base: parseFloat(variantToSave.price.base) || 0,
-      sale: variantToSave.price.sale ? parseFloat(variantToSave.price.sale) : null
+      sale: variantToSave.price.sale ? parseFloat(variantToSave.price.sale) : null,
+      wholesaleBase: variantToSave.wholesale ? (parseFloat(variantToSave.price.wholesaleBase) || 0) : undefined,
+      wholesaleSale: variantToSave.wholesale ? (variantToSave.price.wholesaleSale ? parseFloat(variantToSave.price.wholesaleSale) : null) : undefined,
     };
 
-    if (variantToSave.wholesale) {
-      pricePayload.wholesaleBase = parseFloat(variantToSave.wholesaleBase) || 0;
-      pricePayload.wholesaleSale = variantToSave.wholesaleSale ? parseFloat(variantToSave.wholesaleSale) : null;
-    }
+    // Calculate wholesale visibility automatically
+    const wholesaleVisibility = (variantToSave.wholesale && pricePayload.wholesaleBase > 0) ? "active" : "draft";
+    const channelVisibilityPayload = {
+      ecomm: variantToSave.channelVisibility?.ecomm || "active",
+      wholesale: wholesaleVisibility,
+    };
 
     if (editingVariantIndex !== null) {
       const existingProductCode = formData.variants[editingVariantIndex].productCode;
@@ -166,7 +174,7 @@ const EditProductModal = ({ product, onClose, brands, setBrands }) => {
           isActive: variantToSave.isActive,
           wholesale: variantToSave.wholesale,
           minimumOrderQuantity: variantToSave.minimumOrderQuantity,
-          channelVisibility: variantToSave.channelVisibility,
+          channelVisibility: channelVisibilityPayload,
         })).unwrap();
         if (result?.product?.variants)
           setFormData((prev) => ({ ...prev, variants: normaliseVariants(result.product.variants) }));
@@ -181,7 +189,7 @@ const EditProductModal = ({ product, onClose, brands, setBrands }) => {
           variantData: {
             ...variantToSave,
             price: pricePayload,
-            channelVisibility: variantToSave.channelVisibility,
+            channelVisibility: channelVisibilityPayload,
           }
         })).unwrap();
         if (result?.product?.variants)
@@ -264,13 +272,23 @@ const EditProductModal = ({ product, onClose, brands, setBrands }) => {
         return;
       }
 
-      const pricePayload = { base, sale };
-      if (mainVariant.wholesale) {
-        pricePayload.wholesaleBase = parseFloat(mainVariant.wholesaleBase) || 0;
-        pricePayload.wholesaleSale = mainVariant.wholesaleSale ? parseFloat(mainVariant.wholesaleSale) : null;
-      }
+      // CRITICAL: Build price with wholesaleBase INSIDE price object
+      const pricePayload = {
+        base: base,
+        sale: sale,
+        wholesaleBase: mainVariant.wholesale ? (parseFloat(mainVariant.price?.wholesaleBase) || 0) : undefined,
+        wholesaleSale: mainVariant.wholesale ? (mainVariant.price?.wholesaleSale ? parseFloat(mainVariant.price.wholesaleSale) : null) : undefined,
+      };
+
+      // Calculate wholesale visibility automatically
+      const wholesaleVisibility = (mainVariant.wholesale && pricePayload.wholesaleBase > 0) ? "active" : "draft";
+      const channelVisibilityPayload = {
+        ecomm: mainVariant.channelVisibility?.ecomm || "active",
+        wholesale: wholesaleVisibility,
+      };
 
       try {
+        // ONLY update variant, do NOT call updateProduct after this
         const result = await dispatch(updateVariantByBarcode({
           slug: product.slug,
           barcode: mainVariant.productCode,
@@ -280,17 +298,33 @@ const EditProductModal = ({ product, onClose, brands, setBrands }) => {
           images: mainVariant.images,
           wholesale: mainVariant.wholesale,
           minimumOrderQuantity: mainVariant.minimumOrderQuantity,
-          channelVisibility: mainVariant.channelVisibility,
+          channelVisibility: channelVisibilityPayload,
         })).unwrap();
-        if (result?.product?.variants)
+        
+        if (result?.product?.variants) {
           setFormData((prev) => ({ ...prev, variants: normaliseVariants(result.product.variants) }));
+        }
+        
+        // After variant update, update product-level fields separately
+        await dispatch(updateProduct({
+          slug: product.slug,
+          formData: {
+            ...formData,
+            gstRate: formData.taxRate,
+          }
+        })).unwrap();
+        
       } catch (err) {
-        setSubmitError(`Main variant save failed: ${typeof err === "string" ? err : err?.message || "Unknown error"}`);
+        setSubmitError(`Save failed: ${typeof err === "string" ? err : err?.message || "Unknown error"}`);
         return;
       }
+    } else {
+      // No main variant? Just update product fields
+      dispatch(updateProduct({
+        slug: product.slug,
+        formData: { ...formData, gstRate: formData.taxRate }
+      }));
     }
-
-    dispatch(updateProduct({ slug: product.slug, formData: { ...formData, gstRate: formData.taxRate } }));
   };
 
   const isAnySaving = updateLoading || variantLoading || actionLoading;
