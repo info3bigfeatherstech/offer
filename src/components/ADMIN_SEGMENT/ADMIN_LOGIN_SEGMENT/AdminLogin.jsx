@@ -7,7 +7,6 @@ import { selectAdminStatus, selectIsAdminAuth } from "../ADMIN_REDUX_MANAGEMENT/
 import { useSelector } from "react-redux";
 import LOGO from "../../../assets/logo2.png";
 
-// ── Lockout helpers ───────────────────────────────────────────────────────────
 const LOCKOUT_SEQUENCE = [0, 0, 0, 30, 60, 300];
 const getLockDuration  = (n) => LOCKOUT_SEQUENCE[Math.min(n, LOCKOUT_SEQUENCE.length - 1)];
 const STORAGE_KEY      = "lr_admin_lock";
@@ -21,11 +20,23 @@ const formatLockTime = (s) => {
     return `${s}s`;
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
+const Spinner = ({ onRetry }) => (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-black gap-4">
+        <div className="w-9 h-9 border-[3px] border-[#1f1f1f] border-t-[#f7a221] rounded-full animate-spin" />
+        {onRetry && (
+            <button
+                onClick={onRetry}
+                className="bg-white text-black font-bold py-2 px-4 rounded-md hover:bg-[#e5941d] focus:outline-none focus:ring-2 focus:ring-[#f7a221] transition-colors"
+            >
+                Try Again
+            </button>
+        )}
+    </div>
+);
 
 const AdminLogin = () => {
-    const navigate   = useNavigate();
-    const location   = useLocation();
+    const navigate = useNavigate();
+    const location = useLocation();
 
     const isAlreadyAuth = useSelector(selectIsAdminAuth);
     const adminStatus   = useSelector(selectAdminStatus);
@@ -37,13 +48,13 @@ const AdminLogin = () => {
     const [lockSecondsLeft, setLockSecondsLeft] = useState(0);
     const [failCount,       setFailCount]       = useState(0);
 
-    const lockTimerRef    = useRef(null);
-    const hasRedirected   = useRef(false);
-    // ✅ capture destination ONCE on mount — never read location.state in effects
-    const destinationRef  = useRef(location.state?.from || "/babapanel");
+    const lockTimerRef   = useRef(null);
+    const hasRedirected  = useRef(false);
+    // Capture destination ONCE on mount — never put location.state in useEffect deps
+    const destinationRef = useRef(location.state?.from || "/babapanel");
 
-    // ── Redirect if already authenticated ────────────────────────────────
-    // ✅ NO location.state in deps — captured in ref above
+    // ── Redirect if already authenticated ─────────────────────────────────
+    // location.state is NOT in deps — it's captured in destinationRef above
     useEffect(() => {
         if (isAlreadyAuth && !hasRedirected.current) {
             hasRedirected.current = true;
@@ -51,7 +62,7 @@ const AdminLogin = () => {
         }
     }, [isAlreadyAuth, navigate]);
 
-    // ── Rehydrate lockout on mount ────────────────────────────────────────
+    // ── Rehydrate lockout on mount only ───────────────────────────────────
     useEffect(() => {
         const saved = readLock();
         if (saved) {
@@ -64,7 +75,7 @@ const AdminLogin = () => {
             }
         }
         return () => { if (lockTimerRef.current) clearInterval(lockTimerRef.current); };
-    }, []); // ✅ mount only
+    }, []);
 
     // ── Countdown ticker ──────────────────────────────────────────────────
     useEffect(() => {
@@ -108,27 +119,27 @@ const AdminLogin = () => {
         }
     };
 
-    // ── Show spinner while session check is in progress ──────────────────
-    if (adminStatus === "loading" || adminStatus === "idle") {
-        return (
-            <div className="min-h-screen flex items-center justify-center bg-black">
-                <div className="w-9 h-9 border-[3px] border-[#1f1f1f] border-t-[#f7a221] rounded-full animate-spin" />
-            </div>
-        );
+    // ── "loading" = actively calling /auth/me or login API ───────────────
+    // Show spinner WITH Try Again so user is never stuck
+    if (adminStatus === "loading") {
+        return <Spinner onRetry={() => window.location.reload()} />;
     }
 
-    // ── If already auth, show spinner while redirect is pending ──────────
+    // ── "idle" = token exists but undecodable, /auth/me is about to fire ─
+    // Show spinner WITH Try Again — this state resolves in <1s normally
+    if (adminStatus === "idle") {
+        return <Spinner onRetry={() => window.location.reload()} />;
+    }
+
+    // ── Already authenticated — spinner while navigate() takes effect ─────
     if (isAlreadyAuth) {
-        return (
-            <div className="min-h-screen flex items-center justify-center bg-black">
-                <div className="w-9 h-9 border-[3px] border-[#1f1f1f] border-t-[#f7a221] rounded-full animate-spin" />
-            </div>
-        );
+        return <Spinner />;
     }
 
-    const isLocked        = lockSecondsLeft > 0;
-    const attemptsLeft    = 3 - failCount;
-    const showWarning     = failCount > 0 && failCount < 3 && !isLocked;
+    // ── "unauthenticated" → show the login form ───────────────────────────
+    const isLocked     = lockSecondsLeft > 0;
+    const attemptsLeft = 3 - failCount;
+    const showWarning  = failCount > 0 && failCount < 3 && !isLocked;
 
     return (
         <div className="min-h-screen flex items-center justify-center bg-black p-6">
@@ -151,7 +162,8 @@ const AdminLogin = () => {
                                 Account temporarily locked
                             </p>
                             <p className="text-red-500/60 text-[11px] m-0">
-                                Try again in <span className="font-extrabold text-red-500">{formatLockTime(lockSecondsLeft)}</span>
+                                Try again in{" "}
+                                <span className="font-extrabold text-red-500">{formatLockTime(lockSecondsLeft)}</span>
                             </p>
                         </div>
                     </div>
@@ -169,9 +181,13 @@ const AdminLogin = () => {
                     <div className="relative">
                         <User size={16} color="rgba(255,255,255,0.2)"
                             className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
-                        <input type="text" placeholder="Email or Phone Number"
-                            value={identifier} onChange={(e) => setIdentifier(e.target.value)}
-                            disabled={isLocked} required
+                        <input
+                            type="text"
+                            placeholder="Email or Phone Number"
+                            value={identifier}
+                            onChange={(e) => setIdentifier(e.target.value)}
+                            disabled={isLocked}
+                            required
                             className={`w-full box-border bg-white/5 border border-white/10 rounded-xl py-4 px-4 pl-11 text-white text-sm outline-none transition-colors focus:border-[#f7a221] ${isLocked ? "opacity-40" : ""}`}
                         />
                     </div>
@@ -179,18 +195,27 @@ const AdminLogin = () => {
                     <div className="relative">
                         <Lock size={16} color="rgba(255,255,255,0.2)"
                             className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
-                        <input type="password" placeholder="Password"
-                            value={password} onChange={(e) => setPassword(e.target.value)}
-                            autoComplete="current-password" disabled={isLocked} required
+                        <input
+                            type="password"
+                            placeholder="Password"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            autoComplete="current-password"
+                            disabled={isLocked}
+                            required
                             className={`w-full box-border bg-white/5 border border-white/10 rounded-xl py-4 px-4 pl-11 text-white text-sm outline-none transition-colors focus:border-[#f7a221] ${isLocked ? "opacity-40" : ""}`}
                         />
                     </div>
 
-                    <button type="submit" disabled={isLoading || isLocked}
+                    <button
+                        type="submit"
+                        disabled={isLoading || isLocked}
                         className={`mt-1 w-full rounded-xl py-[17px] font-extrabold text-[13px] tracking-[0.12em] uppercase transition-all ${
-                            isLocked ? "bg-[#1f1f1f] text-[#555] cursor-not-allowed"
-                                     : "bg-[#f7a221] text-black hover:bg-[#f7a221]/90 cursor-pointer shadow-lg shadow-[#f7a221]/20"
-                        } ${isLoading ? "opacity-70" : ""}`}>
+                            isLocked
+                                ? "bg-[#1f1f1f] text-[#555] cursor-not-allowed"
+                                : "bg-[#f7a221] text-black hover:bg-[#f7a221]/90 cursor-pointer shadow-lg shadow-[#f7a221]/20"
+                        } ${isLoading ? "opacity-70" : ""}`}
+                    >
                         {isLoading ? "Verifying…" : isLocked ? `Locked — ${formatLockTime(lockSecondsLeft)}` : "Sign in to Dashboard"}
                     </button>
                 </form>
@@ -204,7 +229,6 @@ const AdminLogin = () => {
 };
 
 export default AdminLogin;
-
 // // components/ADMIN_SEGMENT/ADMIN_LOGIN_SEGMENT/AdminLogin.jsx
 // // ─────────────────────────────────────────────────────────────────────────────
 // // Admin-only login page.

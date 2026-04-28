@@ -58,6 +58,7 @@ const fmt = (n) => {
   }).format(n);
 };
 
+
 // ─── Related Card ─────────────────────────────────────────────────────────────
 const RelatedCard = ({ product }) => {
   const navigate = useNavigate();
