@@ -110,7 +110,7 @@ const ProductModal = ({ onClose, brands, setBrands }) => {
     if (!formData.category) { alert("Please select a category"); return; }
     const bc0 = String(formData.ProductCode ?? "").trim();
     if (!bc0) { alert("Main ProductCode is required"); return; }
-    if (isNaN(Number(bc0))) { alert("Main ProductCode must be a valid number"); return; }
+    if (!/^[A-Z0-9]+-\d{2}$/.test(bc0.toUpperCase())) { alert("Main ProductCode must be in BASE-XX format (e.g., 3897-01)"); return; }
     if (!formData.price?.base || isNaN(Number(formData.price.base))) {
       alert("Main variant base price is required"); return;
     }
@@ -118,7 +118,7 @@ const ProductModal = ({ onClose, brands, setBrands }) => {
     for (let i = 0; i < formData.variants.length; i++) {
       const bc = String(formData.variants[i].ProductCode ?? "").trim();
       if (!bc) { alert(`Variant ${i + 1}: ProductCode is required`); return; }
-      if (isNaN(Number(bc))) { alert(`Variant ${i + 1}: ProductCode must be a valid number`); return; }
+      if (!/^[A-Z0-9]+-\d{2}$/.test(bc.toUpperCase())) { alert(`Variant ${i + 1}: ProductCode must be in BASE-XX format (e.g., 3897-01)`); return; }
       if (!formData.variants[i].price?.base || isNaN(Number(formData.variants[i].price.base))) {
         alert(`Variant ${i + 1}: base price is required`); return;
       }

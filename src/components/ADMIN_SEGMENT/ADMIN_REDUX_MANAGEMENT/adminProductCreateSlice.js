@@ -36,6 +36,15 @@ const buildInventoryObj = (inv) => ({
   trackInventory: inv?.trackInventory !== false,
 });
 
+const normalizeProductCode = (rawCode, label = "ProductCode") => {
+  const code = String(rawCode ?? "").trim().toUpperCase();
+  if (!code) throw new Error(`${label} is required`);
+  if (!/^[A-Z0-9]+-\d{2}$/.test(code)) {
+    throw new Error(`${label} must be in BASE-XX format (e.g., 3897-01)`);
+  }
+  return code;
+};
+
 export const createProduct = createAsyncThunk(
   "adminProductCreate/createProduct",
   async (productData, { rejectWithValue }) => {
@@ -103,8 +112,15 @@ export const createProduct = createAsyncThunk(
         const wholesaleEligible = v.wholesale && (v.wholesaleBase > 0);
         const wholesaleVisibility = wholesaleEligible ? "active" : "draft";
 
+        let normalizedVariantProductCode;
+        try {
+          normalizedVariantProductCode = normalizeProductCode(v.ProductCode, `Variant ${i + 1} ProductCode`);
+        } catch (codeErr) {
+          return rejectWithValue(codeErr.message);
+        }
+
         extraVariants.push({
-          productCode: Number(v.ProductCode) || 0,
+          productCode: normalizedVariantProductCode,
           attributes: (v.attributes || []).filter((a) => a.key && a.value),
           price: vPrice,
           inventory: buildInventoryObj(v.inventory),
@@ -121,8 +137,15 @@ export const createProduct = createAsyncThunk(
       const primaryWholesaleEligible = productData.wholesale && (productData.wholesaleBase > 0);
       const primaryWholesaleVisibility = primaryWholesaleEligible ? "active" : "draft";
 
+      let normalizedMainProductCode;
+      try {
+        normalizedMainProductCode = normalizeProductCode(productData.ProductCode, "Main ProductCode");
+      } catch (codeErr) {
+        return rejectWithValue(codeErr.message);
+      }
+
       const primaryVariant = {
-        productCode: Number(productData.ProductCode) || 0,
+        productCode: normalizedMainProductCode,
         attributes: [],
         price: primaryPrice,
         inventory: buildInventoryObj(productData.inventory),

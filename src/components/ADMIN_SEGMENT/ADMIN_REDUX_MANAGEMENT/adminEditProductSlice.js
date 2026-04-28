@@ -184,10 +184,12 @@ export const addVariantToProduct = createAsyncThunk(
     try {
       const rawCode = variantData.ProductCode ?? variantData.productCode;
       if (!rawCode && rawCode !== 0) return rejectWithValue("ProductCode is required to add a variant");
-      if (isNaN(Number(rawCode))) return rejectWithValue("ProductCode must be a valid number");
+      const normalizedProductCode = String(rawCode).trim().toUpperCase();
+      if (!/^[A-Z0-9]+-\d{2}$/.test(normalizedProductCode))
+        return rejectWithValue("ProductCode must be in BASE-XX format (e.g., 3897-01)");
 
       const fd = new FormData();
-      fd.append("productCode", String(Number(rawCode)));
+      fd.append("productCode", normalizedProductCode);
 
       let pricePayload;
       try {

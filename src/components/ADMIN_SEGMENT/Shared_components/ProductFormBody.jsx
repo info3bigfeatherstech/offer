@@ -162,6 +162,13 @@ const ProductFormBody = ({
     return variant?.wholesale === true && (variant?.price?.wholesaleBase > 0);
   };
 
+  const isWholesaleMoqUnmet = (variant) => {
+    if (!variant?.wholesale) return false;
+    const quantity = Number(variant?.inventory?.quantity ?? 0);
+    const moq = Number(variant?.minimumOrderQuantity ?? 1);
+    return moq > quantity;
+  };
+
   // Get wholesale visibility badge text
   const getWholesaleVisibilityBadge = (variant) => {
     const isEligible = isWholesaleEligible(variant);
@@ -179,6 +186,7 @@ const ProductFormBody = ({
       ? { text: "Active", color: "bg-green-100 text-green-700" }
       : { text: "Draft", color: "bg-gray-100 text-gray-500" };
   };
+
 
   return (
     <div className="grid grid-cols-3 gap-6">
@@ -335,8 +343,6 @@ const ProductFormBody = ({
         </div>
 
         {/* Main Variant Card - UPDATED with channel visibility toggles */}
-       // INSIDE ProductFormBody.jsx - Only the Main Variant Card section (lines ~200-350)
-// Replace your existing main variant card with this:
 
 {isEditMode && primaryVariant && (
   <div className="bg-white rounded-xl border-2 border-indigo-300 overflow-hidden">
@@ -414,6 +420,11 @@ const ProductFormBody = ({
               <label className="block text-xs font-medium text-gray-700 mb-1">Minimum Order Quantity (MOQ)</label>
               <input type="number" min="1" value={primaryVariant.minimumOrderQuantity ?? 1} onChange={(e) => updateMainVariantField("minimumOrderQuantity", parseInt(e.target.value) || 1)} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg" />
             </div>
+            {isWholesaleMoqUnmet(primaryVariant) && (
+              <p className="text-xs font-semibold text-red-600 bg-red-50 border border-red-200 rounded-lg px-2 py-1">
+                Wholesale warning: MOQ ({primaryVariant.minimumOrderQuantity ?? 1}) is greater than stock ({primaryVariant.inventory?.quantity ?? 0})
+              </p>
+            )}
           </div>
         )}
       </div>
