@@ -81,8 +81,8 @@ const VariantModal = ({
       alert('ProductCode is required');
       return;
     }
-    if (isNaN(Number(ProductCode))) {
-      alert('ProductCode must be a valid number');
+    if (!/^[A-Z0-9]+-\d{2}$/.test(ProductCode.toUpperCase())) {
+      alert('ProductCode must be in BASE-XX format (e.g., 3897-01)');
       return;
     }
     if (!variantForm.price.base) {

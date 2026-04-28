@@ -38,6 +38,7 @@ const logError = (ctx, err, info = {}) => {
   console.groupEnd();
 };
 
+
 // ── Component ─────────────────────────────────────────────────────────────────
 const ProductCard = ({ product, index = 0 }) => {
   const navigate = useNavigate();
