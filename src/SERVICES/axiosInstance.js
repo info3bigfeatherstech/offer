@@ -6,6 +6,7 @@ const axiosInstance = axios.create({
   withCredentials: true, // ✅ IMPORTANT: sends cookies (refreshToken) with every request
   headers: {
     "Content-Type": "application/json",
+    "x-storefront": "ecomm"
   },
 });
 

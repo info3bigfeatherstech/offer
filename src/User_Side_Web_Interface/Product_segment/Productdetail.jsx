@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
-import { useParams, useNavigate, useLocation } from "react-router-dom";
+import { useParams, useNavigate, useLocation, Link } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
 import { IoLogoWhatsapp, IoLogoFacebook, IoLogoInstagram } from "react-icons/io5";
 import { FaTelegram } from "react-icons/fa6";
@@ -830,11 +830,11 @@ const ProductUI = () => {
       </div>
 
       {/* ── BUY NOW ── */}
-      <button
-        className="w-full py-3 rounded-xl text-sm font-semibold bg-zinc-900 text-white hover:bg-[#F7A221] transition active:scale-[0.97]"
+      <Link to="/checkout"
+        className="w-full py-3 rounded-xl flex items-center justify-center text-sm font-semibold bg-zinc-900 text-white hover:bg-[#F7A221] transition active:scale-[0.97]"
       >
         Buy Now
-      </button>
+      </Link>
     </>
   )}
 </div>

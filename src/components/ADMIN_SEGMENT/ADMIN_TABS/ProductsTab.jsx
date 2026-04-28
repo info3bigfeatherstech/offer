@@ -19,6 +19,7 @@ import {
   fetchLowStockProducts,
   fetchActiveProductsCount,
   setCurrentPage,
+  optimisticBulkTagUpdate,
 } from "../ADMIN_REDUX_MANAGEMENT/adminGetProductsSlice";
 import { fetchArchivedProducts } from "../ADMIN_REDUX_MANAGEMENT/adminArchivedSlice";
 import {
@@ -29,6 +30,7 @@ import {
 } from "../ADMIN_REDUX_MANAGEMENT/adminEditProductSlice";
 
 import axiosInstance from "../../../SERVICES/axiosInstance";
+import FlagToggle from "../../Common/FlagToggle";
 
 // ── Formatters ────────────────────────────────────────────────────────────────
 const formatIndianRupee = (amount) =>
@@ -299,6 +301,78 @@ const DateFilterButton = ({ dateFilter, setDateFilter }) => {
 // ── Main ProductsTab ──────────────────────────────────────────────────────────
 const ProductsTab = ({ onSwitchTab }) => {
   const dispatch = useDispatch();
+  const [todayArrival, setTodayArrival] = useState(false);
+const [onSale, setOnSale] = useState(false);
+const [flagLoading, setFlagLoading] = useState(false);
+
+const handleBulkFlagUpdate = async (flagType) => {
+  if (selectedSlugs.size === 0) {
+    toast.error("No products selected");
+    return;
+  }
+
+  if (flagLoading) return;
+
+  const stateMap = {
+    "today-arrival": [todayArrival, setTodayArrival],
+    "on-sale": [onSale, setOnSale],
+  };
+
+  const stateEntry = stateMap[flagType];
+
+  if (!stateEntry) {
+    console.error("Invalid flagType:", flagType);
+    return;
+  }
+
+  const [currentValue, setValue] = stateEntry;
+
+  const isIndeterminate =
+    flagType === "today-arrival"
+      ? todayIndeterminate
+      : saleIndeterminate;
+
+  let newValue = isIndeterminate ? true : !currentValue;
+
+  setFlagLoading(true);
+
+  // optimistic UI
+  setValue(newValue);
+  dispatch(optimisticBulkTagUpdate({
+  slugs: Array.from(selectedSlugs),
+  flagType,
+  value: newValue
+}));
+
+  try {
+    const res = await axiosInstance.put(`/admin/products/updateFlags`, {
+      slugs: Array.from(selectedSlugs),
+      flagType,
+      value: newValue,
+    });
+
+    if (!res?.data?.success) {
+      throw new Error(res?.data?.message || "Update failed");
+    }
+
+    toast.success("Products updated successfully");
+   setTimeout(() => {
+  setSelectedSlugs(new Set());
+}, 400);
+
+  } catch (err) {
+    dispatch(optimisticBulkTagUpdate({
+  slugs: Array.from(selectedSlugs),
+  flagType,
+  value: !newValue
+}));
+    toast.error(err?.response?.data?.message || "Failed to update flags");
+
+    // rollback
+  } finally {
+    setFlagLoading(false);
+  }
+};
 
   // ── Redux state ─────────────────────────────────────────────────────────────
   const {
@@ -363,6 +437,41 @@ const ProductsTab = ({ onSwitchTab }) => {
     dispatch(fetchLowStockProducts({ page: 1, limit: 1 }));
     dispatch(fetchActiveProductsCount());
   }, [dispatch]);
+  const [todayIndeterminate, setTodayIndeterminate] = useState(false);
+const [saleIndeterminate, setSaleIndeterminate] = useState(false);
+
+useEffect(() => {
+  if (selectedSlugs.size === 0) {
+    setTodayArrival(false);
+    setOnSale(false);
+    setTodayIndeterminate(false);
+    setSaleIndeterminate(false);
+    return;
+  }
+
+  const selected = products.filter(p =>
+    selectedSlugs.has(p.slug)
+  );
+
+  const total = selected.length;
+
+  const todayCount = selected.filter(p =>
+    p.tags?.includes("today-arrival")
+  ).length;
+
+  const saleCount = selected.filter(p =>
+    p.tags?.includes("on-sale")
+  ).length;
+
+  // today arrival
+  setTodayArrival(todayCount === total);
+  setTodayIndeterminate(todayCount > 0 && todayCount < total);
+
+  // on sale
+  setOnSale(saleCount === total);
+  setSaleIndeterminate(saleCount > 0 && saleCount < total);
+
+}, [selectedSlugs, products]);
 
   // Clear selection when page changes
   useEffect(() => {
@@ -724,6 +833,26 @@ const ProductsTab = ({ onSwitchTab }) => {
             </div>
 
            {/* Bulk action buttons - Select Type */}
+       <div className="flex items-center gap-6">
+
+  <FlagToggle
+    label="Today Arrival"
+    value={todayArrival}
+    indeterminate={todayIndeterminate}
+    loading={flagLoading}
+    onClick={() => handleBulkFlagUpdate("today-arrival")}
+  />
+
+  <FlagToggle
+    label="On Sale"
+    value={onSale}
+    indeterminate={saleIndeterminate}
+    loading={flagLoading}
+    onClick={() => handleBulkFlagUpdate("on-sale")}
+  />
+
+</div>
+
           <div className="flex items-center gap-2">
             <span className="text-xl text-black  font-bold mr-1">Set as:</span>
 
@@ -892,6 +1021,8 @@ const ProductsTab = ({ onSwitchTab }) => {
             <tbody className="divide-y divide-gray-200">
               {filteredProducts.map((product) => {
                 const isChecked = selectedSlugs.has(product.slug);
+                console.log("checked",isChecked);
+                
                 const mainVariant = product.variants?.[0] || {};
                 const basePrice = mainVariant.price?.base || 0;
                 const salePrice = mainVariant.price?.sale;

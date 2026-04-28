@@ -18,6 +18,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import logo from "../../assets/logo2.png";
 import homeIcon from "../../assets/home (2).png";
 import Coupon from "../../assets/Tickets.gif";
+import Contact from "../../assets/Contact.gif";
 import SaleIcon from "../../assets/Shopping bag.gif";
 import deal from "../../assets/Discount.gif";
 import arrivals from "../../assets/Product (5).gif";
@@ -392,7 +393,7 @@ const Navbar = ({ searchQuery, setSearchQuery, isMenuOpen, setIsMenuOpen, isLogg
   const bottomNavLinks = [
     {
       label: "Todays' Deal",
-      path: "/",
+      path: "/today-arrival",
       icon: <ImageIcon src={deal} alt="Deal" animation="animate-swing" />
     },
     {
@@ -402,13 +403,18 @@ const Navbar = ({ searchQuery, setSearchQuery, isMenuOpen, setIsMenuOpen, isLogg
     },
     {
       label: "Sale",
-      path: "/sale",
+      path: "/on-sale",
       icon: <ImageIcon src={SaleIcon} alt="Sale" animation="animate-flicker" />
     },
     {
       label: "Coupons",
       path: "/coupons",
       icon: <ImageIcon src={Coupon} alt="Coupons" animation="animate-bounce-soft" />
+    },
+     {
+      label: "Contact Us",
+      path: "/contact",
+      icon: <ImageIcon src={Contact} alt="Contact Us" animation="animate-bounce-soft" />
     },
   ];
 
@@ -658,7 +664,7 @@ const Navbar = ({ searchQuery, setSearchQuery, isMenuOpen, setIsMenuOpen, isLogg
                   <div className="transition-transform duration-300 group-hover:scale-125">
                     {link.icon}
                   </div>
-                  <span className="font-bold text-black text-md md:text-[0.7rem] relative z-10">{link.label}</span>
+                  <span className="font-bold text-black text-md md:text-[0.65rem] relative z-10">{link.label}</span>
                 </Link>
               ))}
             </div>

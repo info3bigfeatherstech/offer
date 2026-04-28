@@ -15,6 +15,7 @@ import CatProducts from "./User_Side_Web_Interface/Product_segment/CatPro_segmen
 import ProductDetail from "./User_Side_Web_Interface/Product_segment/Productdetail";
 import UserDashboard from "./User_Side_Web_Interface/User_Dash_Segment/UserDashboard";
 import AdminDashboard from "./components/ADMIN_SEGMENT/Admin_dashboard";
+import ShopByPrice from "./User_Side_Web_Interface/ShopByPriceSegment/ShopByPrice";
 
 // ── New admin auth imports ────────────────────────────────────────────────────
 import AdminLogin        from "./components/ADMIN_SEGMENT/ADMIN_LOGIN_SEGMENT/AdminLogin";
@@ -31,6 +32,8 @@ import useWishlistInit from "./components/HOOKS/useWishlistInit";
 import useCartInit from "./components/HOOKS/useCartInit";
 import UserTab from "./components/ADMIN_SEGMENT/ADMIN_TABS/USER/UserTab";
 import Checkout from "./User_Side_Web_Interface/CHECKOUT/Checkout";
+import TagProducts from "./User_Side_Web_Interface/User_Dash_Segment/UserSubPages/TagProducts";
+import ContactUs from "./components/Common/Contact";
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ── Optional: protect /account routes ────────────────────────────────────────
@@ -134,7 +137,9 @@ const AppContent = () => {
                 <Route path="/"                element={<Homepage onOpenAuth={openAuthModal} />} />
                 <Route path="/customer-care"   element={<CustomerCare onOpenAuth={openAuthModal} />} />
                 <Route path="/category/:slug"  element={<CatProducts />} />
+                <Route path="/contact"  element={<ContactUs />} />
                 <Route path="/products/:slug"  element={<ProductDetail />} />
+                  <Route path="/shopbyprice/:slug" element={<ShopByPrice />} />
 
                 {/* ── Admin auth routes (public — no AdminPrivateRoute) ───── */}
                 <Route path="/admin/login"        element={<AdminLogin />} />
@@ -200,6 +205,8 @@ const AppContent = () => {
                         </PrivateRoute>
                     }
                 />
+                <Route path="/on-sale"       element={<TagProducts tag="on-sale" />} />
+                <Route path="/today-arrival" element={<TagProducts tag="today-arrival" />} />
 
                 <Route path="/checkout" element={<Checkout />} />
 

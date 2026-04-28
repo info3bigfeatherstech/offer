@@ -14,6 +14,7 @@ import HeroSlider from '../Homecompo/HeroSlider';
 
 const Homepage = () => {
   const dispatch = useDispatch();
+  
   const categories = useSelector(selectAllCategories);
   console.log(categories);
   

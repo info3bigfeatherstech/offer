@@ -200,6 +200,10 @@ const Checkout = () => {
     };
   }, [dispatch]);
 
+  useEffect(()=>{
+    window.scrollTo({ top: 0, behavior: "smooth"})
+  }, [])
+
   // ── Handlers ──────────────────────────────────────────────────────────────
 
   const handleFetchQuote = async () => {
