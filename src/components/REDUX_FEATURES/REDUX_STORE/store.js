@@ -23,7 +23,6 @@ import userAddressReducer from '../REDUX_SLICES/Useraddressslice';
 import { searchApi } from '../REDUX_SLICES/searchApi';
 import checkoutReducer from '../REDUX_SLICES/checkoutSlice/checkoutSlice';
 import orderReducer from '../REDUX_SLICES/orderSlice/orderSlice';
-
 const store = configureStore({
   reducer: {
     auth: authReducer,   //user authentication reducer

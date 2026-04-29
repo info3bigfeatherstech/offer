@@ -86,6 +86,23 @@ const adminGetProductsSlice = createSlice({
     },
   },
   reducers: {
+    optimisticBulkTagUpdate: (state, action) => {
+  const { slugs, flagType, value } = action.payload;
+
+  state.products = state.products.map(p => {
+    if (!slugs.includes(p.slug)) return p;
+
+    let tags = p.tags || [];
+
+    if (value) {
+      if (!tags.includes(flagType)) tags.push(flagType);
+    } else {
+      tags = tags.filter(t => t !== flagType);
+    }
+
+    return { ...p, tags };
+  });
+},
     // Optimistic in-place update — called BEFORE API for zero-latency UI
     optimisticUpdateProduct: (state, { payload }) => {
       const idx = state.products.findIndex((p) => p._id === payload._id);
@@ -244,6 +261,7 @@ const adminGetProductsSlice = createSlice({
 
 export const { 
   optimisticUpdateProduct,
+  optimisticBulkTagUpdate,
   clearLowStockProducts,
   setLowStockPage,
   setCurrentPage,  // ✅ EXPORTED

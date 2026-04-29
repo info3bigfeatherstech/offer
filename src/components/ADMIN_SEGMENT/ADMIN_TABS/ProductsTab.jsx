@@ -20,6 +20,7 @@ import {
   fetchLowStockProducts,
   fetchActiveProductsCount,
   setCurrentPage,
+  optimisticBulkTagUpdate,
 } from "../ADMIN_REDUX_MANAGEMENT/adminGetProductsSlice";
 import { fetchArchivedProducts } from "../ADMIN_REDUX_MANAGEMENT/adminArchivedSlice";
 import {
@@ -31,6 +32,7 @@ import {
 } from "../ADMIN_REDUX_MANAGEMENT/adminEditProductSlice";
 
 import axiosInstance from "../../../SERVICES/axiosInstance";
+import FlagToggle from "../../Common/FlagToggle";
 
 // ── Formatters ────────────────────────────────────────────────────────────────
 const formatIndianRupee = (amount) =>
@@ -275,6 +277,78 @@ const DateFilterButton = ({ dateFilter, setDateFilter }) => {
 // ── Main ProductsTab ──────────────────────────────────────────────────────────
 const ProductsTab = ({ onSwitchTab }) => {
   const dispatch = useDispatch();
+  const [todayArrival, setTodayArrival] = useState(false);
+const [onSale, setOnSale] = useState(false);
+const [flagLoading, setFlagLoading] = useState(false);
+
+const handleBulkFlagUpdate = async (flagType) => {
+  if (selectedSlugs.size === 0) {
+    toast.error("No products selected");
+    return;
+  }
+
+  if (flagLoading) return;
+
+  const stateMap = {
+    "today-arrival": [todayArrival, setTodayArrival],
+    "on-sale": [onSale, setOnSale],
+  };
+
+  const stateEntry = stateMap[flagType];
+
+  if (!stateEntry) {
+    console.error("Invalid flagType:", flagType);
+    return;
+  }
+
+  const [currentValue, setValue] = stateEntry;
+
+  const isIndeterminate =
+    flagType === "today-arrival"
+      ? todayIndeterminate
+      : saleIndeterminate;
+
+  let newValue = isIndeterminate ? true : !currentValue;
+
+  setFlagLoading(true);
+
+  // optimistic UI
+  setValue(newValue);
+  dispatch(optimisticBulkTagUpdate({
+  slugs: Array.from(selectedSlugs),
+  flagType,
+  value: newValue
+}));
+
+  try {
+    const res = await axiosInstance.put(`/admin/products/updateFlags`, {
+      slugs: Array.from(selectedSlugs),
+      flagType,
+      value: newValue,
+    });
+
+    if (!res?.data?.success) {
+      throw new Error(res?.data?.message || "Update failed");
+    }
+
+    toast.success("Products updated successfully");
+   setTimeout(() => {
+  setSelectedSlugs(new Set());
+}, 400);
+
+  } catch (err) {
+    dispatch(optimisticBulkTagUpdate({
+  slugs: Array.from(selectedSlugs),
+  flagType,
+  value: !newValue
+}));
+    toast.error(err?.response?.data?.message || "Failed to update flags");
+
+    // rollback
+  } finally {
+    setFlagLoading(false);
+  }
+};
 
   const {
     products,
@@ -332,6 +406,41 @@ const ProductsTab = ({ onSwitchTab }) => {
     dispatch(fetchLowStockProducts({ page: 1, limit: 1 }));
     dispatch(fetchActiveProductsCount());
   }, [dispatch]);
+  const [todayIndeterminate, setTodayIndeterminate] = useState(false);
+const [saleIndeterminate, setSaleIndeterminate] = useState(false);
+
+useEffect(() => {
+  if (selectedSlugs.size === 0) {
+    setTodayArrival(false);
+    setOnSale(false);
+    setTodayIndeterminate(false);
+    setSaleIndeterminate(false);
+    return;
+  }
+
+  const selected = products.filter(p =>
+    selectedSlugs.has(p.slug)
+  );
+
+  const total = selected.length;
+
+  const todayCount = selected.filter(p =>
+    p.tags?.includes("today-arrival")
+  ).length;
+
+  const saleCount = selected.filter(p =>
+    p.tags?.includes("on-sale")
+  ).length;
+
+  // today arrival
+  setTodayArrival(todayCount === total);
+  setTodayIndeterminate(todayCount > 0 && todayCount < total);
+
+  // on sale
+  setOnSale(saleCount === total);
+  setSaleIndeterminate(saleCount > 0 && saleCount < total);
+
+}, [selectedSlugs, products]);
 
   useEffect(() => {
     setSelectedSlugs(new Set());
@@ -558,10 +667,11 @@ const ProductsTab = ({ onSwitchTab }) => {
     const status = product.channelStatus?.ecomm || product.status;
     const colors = {
       active: "bg-green-100 text-green-700",
-      draft: "bg-yellow-100 text-yellow-700",
-      archived: "bg-red-100 text-red-700",
+      draft: "bg-gray-100 text-gray-600",
+      archived: "bg-gray-100 text-gray-600",
     };
-    return <span className={`px-2 py-1 rounded-full text-xs font-medium ${colors[status] || colors.draft}`}>{status}</span>;
+    const label = status === "active" ? "Active" : "Inactive";
+    return <span className={`px-2 py-1 rounded-full text-xs font-medium ${colors[status] || colors.draft}`}>{label}</span>;
   };
 
   const getWholesaleStatusBadge = (product) => {
@@ -699,21 +809,17 @@ const ProductsTab = ({ onSwitchTab }) => {
                 <button
                   onClick={() => handleBulkStatusUpdate("draft", "ecomm")}
                   disabled={bulkLoading}
-                  className="flex items-center gap-2 px-3 py-2 bg-yellow-50 text-yellow-700 rounded-xl text-sm font-medium hover:bg-yellow-100 transition-colors disabled:opacity-50 cursor-pointer"
+                  className="flex items-center gap-2 px-3 py-2 bg-gray-50 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-100 transition-colors disabled:opacity-50 cursor-pointer"
                 >
-                  <span className="w-2 h-2 rounded-full bg-yellow-500 flex-shrink-0" />
-                  Draft
+                  <span className="w-2 h-2 rounded-full bg-gray-400 flex-shrink-0" />
+                  Inactive
                 </button>
-                <button
-                  onClick={() => handleBulkStatusUpdate("archived", "ecomm")}
-                  disabled={bulkLoading}
-                  className="flex items-center gap-2 px-3 py-2 bg-red-50 text-red-700 rounded-xl text-sm font-medium hover:bg-red-100 transition-colors disabled:opacity-50 cursor-pointer"
-                >
+                {/* <button  onClick={() => handleBulkStatusUpdate("archived", "ecomm")}   disabled={bulkLoading}       className="flex items-center gap-2 px-3 py-2 bg-red-50 text-red-700 rounded-xl text-sm font-medium hover:bg-red-100 transition-colors disabled:opacity-50 cursor-pointer"   >
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
                   </svg>
                   Archive
-                </button>
+                </button> */}
               </div>
             </div>
 
@@ -743,7 +849,7 @@ const ProductsTab = ({ onSwitchTab }) => {
                   className="flex items-center gap-2 px-3 py-2 bg-gray-50 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-100 transition-colors disabled:opacity-50 cursor-pointer"
                 >
                   <span className="w-2 h-2 rounded-full bg-gray-400 flex-shrink-0" />
-                  Draft
+                  Inactive
                 </button>
               </div>
             </div>
@@ -771,7 +877,7 @@ const ProductsTab = ({ onSwitchTab }) => {
               className="px-4 cursor-pointer py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500"
             >
               <option value="all">All Status (Ecom)</option>
-              <option value="draft">Draft</option>
+              <option value="draft">Inactive</option>
               <option value="active">Active</option>
               <option value="archived">Archived</option>
             </select>
@@ -855,6 +961,8 @@ const ProductsTab = ({ onSwitchTab }) => {
             <tbody className="divide-y divide-gray-200">
               {filteredProducts.map((product) => {
                 const isChecked = selectedSlugs.has(product.slug);
+                console.log("checked",isChecked);
+                
                 const mainVariant = product.variants?.[0] || {};
                 const basePrice = mainVariant.price?.base || 0;
                 const salePrice = mainVariant.price?.sale;

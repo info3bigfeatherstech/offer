@@ -804,6 +804,7 @@ const UserAddress = () => {
   );
 };
 
+export { AddressFormModal };
 export default UserAddress;
 
 // import React, { useEffect, useState, useCallback, useRef } from "react";

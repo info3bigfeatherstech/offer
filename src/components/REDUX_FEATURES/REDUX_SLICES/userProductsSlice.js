@@ -49,12 +49,16 @@ export const fetchProducts = createAsyncThunk(
 //   2. AbortController wired through `signal` so if the component unmounts
 //      mid-flight, the actual HTTP request is cancelled.
 //   3. Returns `fetchedAt` timestamp so the slice can store it for TTL checks.
+// userProductsSlice.js mein sirf yeh thunk update karo
+
 export const fetchProductsByCategory = createAsyncThunk(
   "userProducts/fetchProductsByCategory",
-  async ({ slug, page = 1, limit = 12 }, { rejectWithValue, signal }) => {
+  async ({ slug, page = 1, limit = 12, tags = "" }, { rejectWithValue, signal }) => {
     try {
+      // ✅ tags param add kiya
+      const tagsQuery = tags ? `&tags=${tags}` : "";
       const response = await axiosInstance.get(
-        `/products/category/${slug}?page=${page}&limit=${limit}`,
+        `/products/category/${slug}?page=${page}&limit=${limit}${tagsQuery}`,
         { signal }
       );
       if (!response.data.success)
@@ -63,7 +67,7 @@ export const fetchProductsByCategory = createAsyncThunk(
     } catch (error) {
       if (error.name === "AbortError" || error.name === "CanceledError")
         return rejectWithValue({ aborted: true, slug });
-      logError("fetchProductsByCategory", error, { slug, page, limit });
+      logError("fetchProductsByCategory", error, { slug, page, limit, tags });
       return rejectWithValue({
         message: error.response?.data?.message || "Failed to load products",
         status: error.response?.status,
@@ -74,7 +78,39 @@ export const fetchProductsByCategory = createAsyncThunk(
   {
     condition: ({ slug }, { getState }) => {
       const status = getState().userProducts.categoryStatus[slug];
-      return status !== "loading"; // ✅ sirf parallel duplicate requests rokta hai
+      return status !== "loading";
+    },
+  }
+);
+// ── fetchProductsByTag ────────────────────────────────────────────────────────
+export const fetchProductsByTag = createAsyncThunk(
+  "userProducts/fetchProductsByTag",
+  async ({ tag, page = 1, limit = 12 }, { rejectWithValue, signal }) => {
+    try {
+      const response = await axiosInstance.get(
+        `/products/all?tags=${tag}&page=${page}&limit=${limit}`,
+        { signal }
+      );
+      console.log("res",response.data);
+      
+      if (!response.data.success)
+        throw new Error(response.data.message || "Failed to fetch products");
+      return { ...response.data, tag, fetchedAt: Date.now() };
+    } catch (error) {
+      if (error.name === "AbortError" || error.name === "CanceledError")
+        return rejectWithValue({ aborted: true, tag });
+      logError("fetchProductsByTag", error, { tag, page, limit });
+      return rejectWithValue({
+        message: error.response?.data?.message || "Failed to load products",
+        status: error.response?.status,
+        tag,
+      });
+    }
+  },
+  {
+    condition: ({ tag }, { getState }) => {
+      const status = getState().userProducts.tagStatus?.[tag];
+      return status !== "loading";
     },
   }
 );
@@ -168,7 +204,13 @@ const initialState = {
   categoryError: {},
   // ── NEW: per-slug status and fetchedAt for dedup + TTL ────────────────────
   categoryStatus: {},    // 'idle' | 'loading' | 'success' | 'error'
-  categoryFetchedAt: {}, // timestamp (ms) of last successful fetch
+  categoryFetchedAt: {}, // timestamp (ms) of last successful fetch,
+   tagProducts:   {},   // { on_sale: [...], today_arrival: [...] }
+  tagPagination: {},   // { on_sale: { total, page, ... } }
+  tagLoading:    {},   // { on_sale: true/false }
+  tagError:      {},   // { on_sale: null | { message } }
+  tagStatus:     {},   // { on_sale: 'idle' | 'loading' | 'success' | 'error' }
+  tagFetchedAt:  {},   // { on_sale: timestamp }
 
   products: [],
   featuredProducts: [],
@@ -212,7 +254,20 @@ const userProductsSlice = createSlice({
     clearCurrentProduct: (state) => { state.currentProduct = null; },
     clearRelatedProducts: (state) => { state.relatedProducts = []; },
     clearErrors: (state) => { state.error = initialState.error; },
+    // reducers mein add karo:
+clearTagProducts: (state, action) => {
+  const tag = action.payload;
+  if (tag) {
+    delete state.tagProducts[tag];
+    delete state.tagPagination[tag];
+    delete state.tagLoading[tag];
+    delete state.tagError[tag];
+    delete state.tagStatus[tag];
+    delete state.tagFetchedAt[tag];
+  }
+},
 
+// exports mein bhi add karo:
     // ── NEW: lets a category be force-refetched (e.g. pull-to-refresh) ──────
     invalidateCategoryCache: (state, action) => {
       const slug = action.payload;
@@ -224,6 +279,54 @@ const userProductsSlice = createSlice({
   },
   extraReducers: (builder) => {
     builder
+    // ── fetchProductsByTag ──────────────────────────────────────────────────
+.addCase(fetchProductsByTag.pending, (state, action) => {
+  const tag = action.meta.arg.tag;
+  state.tagLoading[tag]  = true;
+  state.tagError[tag]    = null;
+  state.tagStatus[tag]   = "loading";
+})
+.addCase(fetchProductsByTag.fulfilled, (state, action) => {
+  const { tag }  = action.payload;
+  const page     = action.payload.page ?? action.meta.arg.page ?? 1;
+  const incoming = action.payload.products || [];
+  const total    = action.payload.pagination?.total ?? action.payload.total ?? 0;
+  const limit    = action.payload.pagination?.limit ?? action.payload.limit ?? 12;
+
+  state.tagLoading[tag]   = false;
+  state.tagStatus[tag]    = "success";
+  state.tagFetchedAt[tag] = action.payload.fetchedAt ?? Date.now();
+  state.tagError[tag]     = null;
+
+  if (page === 1) {
+    state.tagProducts[tag] = incoming;
+  } else {
+    const existing    = state.tagProducts[tag] || [];
+    const existingIds = new Set(existing.map((p) => p._id));
+    const fresh       = incoming.filter((p) => !existingIds.has(p._id));
+    state.tagProducts[tag] = [...existing, ...fresh];
+  }
+
+  state.tagPagination[tag] = {
+    total,
+    page,
+    limit,
+    totalPages:  Math.ceil(total / limit),
+    hasNextPage: action.payload.pagination?.hasNextPage ?? (page * limit < total),
+    hasPrevPage: page > 1,
+  };
+})
+.addCase(fetchProductsByTag.rejected, (state, action) => {
+  const tag = action.meta.arg.tag;
+  if (action.payload?.aborted) {
+    state.tagLoading[tag] = false;
+    state.tagStatus[tag]  = "idle";
+    return;
+  }
+  state.tagLoading[tag] = false;
+  state.tagError[tag]   = action.payload || { message: "Failed to fetch products" };
+  state.tagStatus[tag]  = "error";
+})
 
       // ── fetchProducts ───────────────────────────────────────────────────────
       .addCase(fetchProducts.pending, (state) => {
@@ -418,6 +521,7 @@ export const {
   clearCurrentProduct,
   clearRelatedProducts,
   clearErrors,
+  clearTagProducts,
   invalidateCategoryCache, // NEW export
 } = userProductsSlice.actions;
 
@@ -446,6 +550,18 @@ export const selectPaginationBySlug = (slug) => (state) =>
 // ── NEW: status selector — used by CategorySection to know fetch state ───────
 export const selectStatusBySlug     = (slug) => (state) =>
   state.userProducts.categoryStatus[slug] ?? "idle";
+// slice ke end mein add karo:
+export const selectProductsByTag    = (tag) => (state) =>
+  state.userProducts.tagProducts[tag]   ?? EMPTY_ARRAY;
+
+export const selectLoadingByTag     = (tag) => (state) =>
+  state.userProducts.tagLoading[tag]    ?? false;
+
+export const selectErrorByTag       = (tag) => (state) =>
+  state.userProducts.tagError[tag]      ?? null;
+
+export const selectPaginationByTag  = (tag) => (state) =>
+  state.userProducts.tagPagination[tag] ?? null;
 
 export default userProductsSlice.reducer;
 

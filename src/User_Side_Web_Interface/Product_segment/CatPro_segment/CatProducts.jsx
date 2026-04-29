@@ -145,6 +145,7 @@ const CatProducts = () => {
     availability: [],   // "instock" | "outofstock"
     discount:     [],   // "10" | "25" | "50"
     onSale:       false,
+     todayArrival: false,  
   });
   const [isSortOpen, setIsSortOpen] = useState(false);
   const toggleFilter = useCallback((key, value) => {
@@ -170,6 +171,16 @@ const CatProducts = () => {
   const selectLoading    = useMemo(() => selectLoadingBySlug(slug),   [slug]);
   const selectPagination = useMemo(() => selectPaginationBySlug(slug),[slug]);
 
+
+
+
+const activeTags = useMemo(() => {
+  const tags = [];
+  if (filters.onSale) tags.push("on_sale");
+  if (filters.todayArrival) tags.push("today_arrival");
+  return tags.join(","); // "on_sale" | "today_arrival" | "on_sale,today_arrival" | ""
+}, [filters.onSale, filters.todayArrival]);
+
   // ── Paginated products ────────────────────────────────────────────────────
  
   const {
@@ -184,7 +195,7 @@ const CatProducts = () => {
     selectData:       selectProducts,
     selectLoading:    selectLoading,
     selectPagination: selectPagination,
-    fetchParams:      { slug },
+    fetchParams:      { slug, tags: activeTags },
     limit:            8,
   });
 
@@ -298,9 +309,10 @@ case "za":
     filters.price.length +
     filters.availability.length +
     filters.discount.length +
-    (filters.onSale ? 1 : 0)
+    (filters.onSale ? 1 : 0) +
+    (filters.todayArrival ? 1 : 0)   // ✅ add kiya
   );
-}, [filters]);
+}, [filters])
 
   // ── Helpers ────────────────────────────────────────────────────────────────
  const clearFilters = useCallback(() => {
@@ -309,6 +321,7 @@ case "za":
     availability: [],
     discount: [],
     onSale: false,
+     todayArrival: false, 
   });
 }, []);
 
@@ -471,28 +484,32 @@ case "za":
       <div className="h-px bg-zinc-100" />
 
       {/* On Sale */}
-      <div>
-        <h4 className="text-[11px] font-bold uppercase tracking-[0.15em] text-zinc-800 mb-4">
-          Deals
-        </h4>
-        <label className="flex items-center gap-3 cursor-pointer group">
-          <button
-            onClick={() => setFilters((prev) => ({ ...prev, onSale: !prev.onSale }))}
-            className={`relative w-9 h-5 rounded-full transition-colors flex-shrink-0 ${
-              filters.onSale ? "bg-zinc-900" : "bg-zinc-200"
-            }`}
-          >
-            <span
-              className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${
-                filters.onSale ? "translate-x-4" : "translate-x-0"
-              }`}
-            />
-          </button>
-          <span className={`text-sm transition-colors ${filters.onSale ? "text-zinc-900 font-medium" : "text-zinc-800"}`}>
-            On sale only
-          </span>
-        </label>
-      </div>
+    <div>
+  <h4 className="text-[11px] font-bold uppercase tracking-[0.15em] text-zinc-800 mb-4">
+    Deals
+  </h4>
+
+  {/* On Sale Toggle */}
+  <label className="flex items-center gap-3 cursor-pointer group mb-3">
+    <button
+      onClick={() => setFilters((prev) => ({ ...prev, onSale: !prev.onSale }))}
+      className={`relative w-9 h-5 rounded-full transition-colors flex-shrink-0 ${
+        filters.onSale ? "bg-zinc-900" : "bg-zinc-200"
+      }`}
+    >
+      <span
+        className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${
+          filters.onSale ? "translate-x-4" : "translate-x-0"
+        }`}
+      />
+    </button>
+    <span className={`text-sm transition-colors ${filters.onSale ? "text-zinc-900 font-medium" : "text-zinc-800"}`}>
+      On sale only
+    </span>
+  </label>
+
+  {/* Today Arrival Toggle */}
+</div>
 
       {/* Clear */}
       {activeFilterCount > 0 && (
