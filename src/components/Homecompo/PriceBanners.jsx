@@ -29,7 +29,7 @@ const PriceBanners = () => {
             accentColor: "from-[#f7a221]/20 to-transparent"
         },
         {
-            label: "Under ₹79",
+            label: "Under ₹99",
             tag: "SUPER SAVER",
             icon: <Zap size={20} />,
             gradient: "from-[#1a1a1a] to-[#111111]",
