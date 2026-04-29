@@ -1,56 +1,39 @@
-
-
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
 import { toast } from "react-toastify";
 import {
-  ChevronRight, ChevronLeft, Loader2, MapPin,
-  CreditCard, Truck, CheckCircle2, Package,
-  AlertCircle, ArrowLeft, ShoppingBag, Banknote,
-  X, Clock,
+  Loader2, MapPin, CreditCard, Truck, CheckCircle2,
+  Package, AlertCircle, ArrowLeft, ShoppingBag,
+  Banknote, X, Clock, ChevronDown, ChevronUp,
+  Minus, Plus, Trash2,
 } from "lucide-react";
 
 // Redux — checkout
 import {
-  fetchCheckoutQuote,
-  confirmCheckoutQuote,
-  placeOrder,
-  setSelectedAddress,
-  setPaymentMethod,
-  setPaymentPlan,
-  resetCheckout,
-  resetQuote ,
-  clearCheckoutErrors,
-  selectQuote,
-  selectQuoteId,
-  selectConfirmed,
-  selectPlacedOrder,
-  selectSelectedAddressId,
-  selectPaymentMethod,
-  selectPaymentPlan,
-  selectCheckoutLoading,
-  selectCheckoutError,
-  getRazorpayKey,
-  selectRazorpayKey,
-  selectRazorpayKeyLoading,
-  selectRazorpayKeyError,
-  verifyRazorpayPayment,
-  selectPaymentVerification,
-  resetPaymentVerification,
+  fetchCheckoutQuote, confirmCheckoutQuote, placeOrder,
+  setSelectedAddress, setPaymentMethod, setPaymentPlan,
+  resetCheckout, resetQuote, clearCheckoutErrors,
+  selectQuote, selectQuoteId, selectPlacedOrder,
+  selectSelectedAddressId, selectPaymentMethod, selectPaymentPlan,
+  selectCheckoutLoading, selectCheckoutError,
+  getRazorpayKey, selectRazorpayKey, selectRazorpayKeyLoading,
+  selectRazorpayKeyError, verifyRazorpayPayment,
+  selectPaymentVerification, resetPaymentVerification,
 } from "../../components/REDUX_FEATURES/REDUX_SLICES/checkoutSlice/checkoutSlice";
 
 // Redux — address
 import {
-  selectDefaultAddress,
-  selectOtherAddresses,
+  selectDefaultAddress, selectOtherAddresses,
+  addAddress, selectAddressLoading, selectAddressError,
+  clearAddressErrors,
 } from "../../components/REDUX_FEATURES/REDUX_SLICES/Useraddressslice";
 
 // Redux — cart
 import {
-  selectCartItems,
-  selectDisplayCartCount,
-  selectCartTotalAmount,
+  selectCartItems, selectDisplayCartCount,
+  updateCartItem, removeCartItem,
+  selectCartLoading,
 } from "../../components/REDUX_FEATURES/REDUX_SLICES/userCartSlice";
 
 // Redux — auth
@@ -59,69 +42,98 @@ import { selectUser } from "../../components/REDUX_FEATURES/REDUX_SLICES/authSli
 // Components
 import AddressSelector from "./AddressSelector/AddressSelector";
 import PriceBreakdown from "./PriceBreakdown/PriceBreakdown";
-import AddressFormModal from "../User_Dash_Segment/UserSubPages/UserAddress";
-import RazorpayCheckout, { PaymentErrorModal, PaymentLoadingModal } from "./RazorpayCheckout/RazorpayCheckout";
+import { AddressFormModal } from "../User_Dash_Segment/UserSubPages/UserAddress";
+import RazorpayCheckout, {
+  PaymentErrorModal, PaymentLoadingModal,
+} from "./RazorpayCheckout/RazorpayCheckout";
 
+// ─── PAYMENT STATE MACHINE ────────────────────────────────────────────────────
+// idle        → before Razorpay opens
+// initiated   → Razorpay modal open
+// success     → payment captured (before backend verification)
+// failed      → payment.failed event
+// cancelled   → user closed modal without paying
+// verified    → backend verification complete
+const PAYMENT_STATE = {
+  IDLE: "idle",
+  INITIATED: "initiated",
+  SUCCESS: "success",
+  FAILED: "failed",
+  CANCELLED: "cancelled",
+  VERIFIED: "verified",
+};
+
+// ─── Formatter ────────────────────────────────────────────────────────────────
 const fmt = (n) =>
   new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    maximumFractionDigits: 0,
+    style: "currency", currency: "INR", maximumFractionDigits: 0,
   }).format(n ?? 0);
+
+const createCheckoutAttemptKey = () => {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+
+  return `checkout-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+};
+
+const isQuoteRefreshError = (errorCode) =>
+  errorCode === "QUOTE_STALE" || errorCode === "QUOTE_EXPIRED";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Order Success Screen
 // ─────────────────────────────────────────────────────────────────────────────
 const OrderSuccess = ({ order, onViewOrders }) => (
-  <div className="min-h-screen bg-white flex items-center justify-center p-6">
-    <div className="max-w-md w-full text-center space-y-6">
-      <div className="w-24 h-24 bg-green-50 rounded-full flex items-center justify-center mx-auto">
-        <CheckCircle2 size={48} className="text-green-500" />
+  <div className="min-h-screen flex items-center justify-center p-5"
+    style={{ background: "#FFFBF4" }}>
+    <div className="w-full max-w-sm text-center space-y-6">
+      <div className="w-20 h-20 rounded-full flex items-center justify-center mx-auto"
+        style={{ background: "#F0FFF4" }}>
+        <CheckCircle2 size={40} style={{ color: "#15803D" }} />
       </div>
       <div>
-        <h1 className="text-3xl font-black text-gray-900 tracking-tight">Order Placed!</h1>
-        <p className="text-gray-500 font-medium mt-2">
-          {order.paymentMethod === "cod" 
-            ? "We've received your order and will process it shortly."
-            : "Payment successful! Your order has been confirmed."}
+        <h1 className="text-2xl font-black" style={{ color: "#111" }}>Order Placed!</h1>
+        <p className="text-sm font-medium mt-1.5" style={{ color: "#6b7280" }}>
+          {order.paymentMethod === "cod"
+            ? "We'll process your order shortly."
+            : "Payment confirmed. Order is on its way!"}
         </p>
       </div>
-      <div className="bg-gray-50 rounded-[28px] p-6 text-left space-y-3">
-        <div className="flex justify-between items-center">
-          <span className="text-xs font-black uppercase tracking-widest text-gray-400">Order ID</span>
-          <span className="text-sm font-black text-gray-900">{order.orderId}</span>
-        </div>
-        <div className="flex justify-between items-center">
-          <span className="text-xs font-black uppercase tracking-widest text-gray-400">
-            {order.paymentMethod === "cod" ? "Total Amount" : "Amount Paid"}
-          </span>
-          <span className="text-sm font-black text-gray-900">{fmt(order.totalAmount)}</span>
-        </div>
-        <div className="flex justify-between items-center">
-          <span className="text-xs font-black uppercase tracking-widest text-gray-400">Payment</span>
-          <span className="text-sm font-black text-gray-900 uppercase">
-            {order.paymentMethod === "cod" ? "Cash on Delivery" : "Online Payment"}
-          </span>
-        </div>
-        <div className="flex justify-between items-center">
-          <span className="text-xs font-black uppercase tracking-widest text-gray-400">Status</span>
-          <span className="text-xs font-black uppercase tracking-widest text-green-600 bg-green-50 px-3 py-1.5 rounded-full">
-            {order.orderStatus === "confirmed" ? "Confirmed" : order.orderStatus}
-          </span>
-        </div>
+      <div className="rounded-2xl p-5 text-left space-y-3"
+        style={{ background: "#fff", border: "1px solid #f0e8d8" }}>
+        {[
+          { label: "Order ID", value: order.orderId },
+          {
+            label: order.paymentMethod === "cod" ? "Total" : "Paid",
+            value: fmt(order.totalAmount),
+          },
+          {
+            label: "Payment",
+            value: order.paymentMethod === "cod" ? "Cash on Delivery" : "Online",
+          },
+          { label: "Status", value: "Confirmed", badge: true },
+        ].map(({ label, value, badge }) => (
+          <div key={label} className="flex justify-between items-center">
+            <span className="text-xs font-black uppercase tracking-widest"
+              style={{ color: "#9ca3af" }}>{label}</span>
+            {badge
+              ? <span className="text-xs font-black px-3 py-1 rounded-full"
+                  style={{ background: "#F0FFF4", color: "#15803D" }}>{value}</span>
+              : <span className="text-sm font-black" style={{ color: "#111" }}>{value}</span>
+            }
+          </div>
+        ))}
       </div>
       <div className="flex gap-3">
-        <button
-          onClick={onViewOrders}
-          className="flex-1 py-4 bg-black text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-[#F7A221] hover:text-black transition-all cursor-pointer"
-        >
+        <button onClick={onViewOrders}
+          className="flex-1 py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all active:scale-95"
+          style={{ background: "#111", color: "#F7A221", border: "none" }}>
           View Orders
         </button>
-        <a
-          href="/"
-          className="flex-1 py-4 border-2 border-gray-200 rounded-2xl font-black text-xs uppercase tracking-widest text-gray-600 hover:border-black hover:text-black transition-all text-center cursor-pointer"
-        >
-          Continue Shopping
+        <a href="/"
+          className="flex-1 py-4 rounded-2xl font-black text-xs uppercase tracking-widest text-center transition-all active:scale-95"
+          style={{ border: "2px solid #f0e8d8", color: "#6b7280" }}>
+          Shop More
         </a>
       </div>
     </div>
@@ -129,16 +141,314 @@ const OrderSuccess = ({ order, onViewOrders }) => (
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Checkout — Main Page
+// Step Indicator
+// ─────────────────────────────────────────────────────────────────────────────
+const StepIndicator = ({ step }) => (
+  <div className="flex items-center justify-center px-4 py-3"
+    style={{ background: "#fff", borderBottom: "1px solid #f0e8d8" }}>
+    <div className="flex items-center" style={{ gap: 0, width: "100%", maxWidth: 280 }}>
+      {[{ n: 1, label: "Address" }, { n: 2, label: "Payment" }].map(({ n, label }, idx) => {
+        const done = step > n;
+        const active = step === n;
+        return (
+          <React.Fragment key={n}>
+            <div className="flex flex-col items-center" style={{ minWidth: 72 }}>
+              <div className="flex items-center justify-center font-black transition-all"
+                style={{
+                  width: 28, height: 28, borderRadius: "50%", fontSize: 12,
+                  background: done ? "#111" : active ? "#F7A221" : "#f0e8d8",
+                  color: done ? "#F7A221" : active ? "#111" : "#bbb",
+                }}>
+                {done ? "✓" : n}
+              </div>
+              <span className="font-black uppercase mt-1"
+                style={{
+                  fontSize: 10, letterSpacing: "0.06em",
+                  color: done || active ? "#111" : "#9ca3af",
+                }}>
+                {label}
+              </span>
+            </div>
+            {idx === 0 && (
+              <div className="flex-1 transition-all" style={{
+                height: 2, marginBottom: 18,
+                background: step > 1 ? "#F7A221" : "#f0e8d8",
+              }} />
+            )}
+          </React.Fragment>
+        );
+      })}
+    </div>
+  </div>
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Order Summary Card (collapsible) — with real cart controls
+// ─────────────────────────────────────────────────────────────────────────────
+const OrderSummaryCard = ({
+  cartItems,
+  cartCount,
+  quote,
+  dispatch,
+  cartLoading,
+  onCartMutationSuccess,
+}) => {
+  const [open, setOpen] = useState(false);
+  const [updatingId, setUpdatingId] = useState(null);
+
+  const subtotal = quote?.itemsSubtotal ?? 0;
+  const discount = quote?.promotionDiscount ?? 0;
+  const delivery = quote?.deliveryCharges ?? 0;
+  const gst = quote?.taxes ?? 0;
+  const total = quote?.amountPayable ?? subtotal;
+
+  const handleUpdateQty = useCallback(async (item, delta) => {
+    const productId = String(item.productId?._id || item.productId);
+    const variantId = String(item.variantId);
+    const newQty = item.quantity + delta;
+    const key = `${productId}-${variantId}`;
+
+    if (newQty < 1) return; // use remove for qty = 0
+    setUpdatingId(key);
+    try {
+      await dispatch(updateCartItem({
+        productId,
+        variantId,
+        quantity: newQty,
+        productSlug: item._productSlug,
+      })).unwrap();
+      await onCartMutationSuccess?.();
+    } catch (e) {
+      toast.error(e?.message || "Could not update quantity", { theme: "dark" });
+    } finally {
+      setUpdatingId(null);
+    }
+  }, [dispatch]);
+
+  const handleRemove = useCallback(async (item) => {
+    const productId = String(item.productId?._id || item.productId);
+    const variantId = String(item.variantId);
+    const key = `${productId}-${variantId}`;
+    setUpdatingId(key);
+    try {
+      await dispatch(removeCartItem({
+        productId,
+        variantId,
+        productSlug: item._productSlug,
+      })).unwrap();
+      await onCartMutationSuccess?.();
+    } catch (e) {
+      toast.error(e?.message || "Could not remove item", { theme: "dark" });
+    } finally {
+      setUpdatingId(null);
+    }
+  }, [dispatch]);
+
+  return (
+    <div style={{
+      background: "#fff", border: "1px solid #f0e8d8",
+      borderRadius: 18, overflow: "hidden",
+    }}>
+      {/* Toggle header — always visible */}
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center justify-between px-4 py-3.5 cursor-pointer"
+        style={{ background: "transparent", border: "none" }}
+      >
+        <div className="flex items-center gap-2">
+          <ShoppingBag size={15} style={{ color: "#F7A221" }} />
+          <span className="font-black text-sm" style={{ color: "#111" }}>
+            Order Summary
+          </span>
+          <span className="font-black px-2 py-0.5 rounded-full"
+            style={{ fontSize: 11, background: "#F7A221", color: "#111" }}>
+            {cartCount}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="font-black" style={{ fontSize: 14, color: "#111" }}>
+            {fmt(total)}
+          </span>
+          {open
+            ? <ChevronUp size={16} style={{ color: "#9ca3af" }} />
+            : <ChevronDown size={16} style={{ color: "#9ca3af" }} />
+          }
+        </div>
+      </button>
+
+      {/* Expandable body */}
+      <div style={{
+        maxHeight: open ? "70vh" : 0,
+        overflow: "hidden",
+        transition: "max-height 0.32s cubic-bezier(0.4,0,0.2,1)",
+      }}>
+        <div style={{ borderTop: "1px solid #f0e8d8", overflowY: "auto", maxHeight: "60vh" }}>
+
+          {/* Items */}
+          <div className="px-4 py-3 space-y-3">
+            {cartItems.map((item) => {
+              const productId = String(item.productId?._id || item.productId);
+              const variantId = String(item.variantId);
+              const key = `${productId}-${variantId}`;
+              const isUpdating = updatingId === key;
+
+              const variant = item.product?.variants?.find(
+                v => String(v._id) === variantId
+              ) ?? item.product?.variants?.[0];
+              const image = variant?.images?.[0]?.url || null;
+              const name = item.product?.title || item.product?.name || "Product";
+              const sizeName = variant?.size || variant?.name || "";
+              const price = item.price?.sale ?? item.price?.base ?? 0;
+
+              return (
+                <div key={key} className="flex items-center gap-3">
+                  {/* Image */}
+                  <div className="flex-shrink-0 overflow-hidden"
+                    style={{ width: 56, height: 56, borderRadius: 10, background: "#f5f5f5" }}>
+                    {image
+                      ? <img src={image} alt={name} className="w-full h-full object-cover" />
+                      : <div className="w-full h-full flex items-center justify-center">
+                          <Package size={16} style={{ color: "#d1d5db" }} />
+                        </div>
+                    }
+                  </div>
+
+                  {/* Info */}
+                  <div className="flex-1 min-w-0">
+                    <p className="font-black truncate" style={{ fontSize: 13, color: "#111" }}>
+                      {name}
+                    </p>
+                    {sizeName && (
+                      <p style={{ fontSize: 11, color: "#9ca3af" }}>{sizeName}</p>
+                    )}
+                    <p className="font-black" style={{ fontSize: 13, color: "#111", marginTop: 2 }}>
+                      {fmt(price * item.quantity)}
+                    </p>
+                  </div>
+
+                  {/* Controls */}
+                  <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+                    {/* Remove */}
+                    <button
+                      onClick={() => handleRemove(item)}
+                      disabled={isUpdating}
+                      className="flex items-center justify-center cursor-pointer transition-all active:scale-95"
+                      style={{
+                        width: 24, height: 24, borderRadius: 6,
+                        background: "#fff5f5", border: "none",
+                        opacity: isUpdating ? 0.5 : 1,
+                      }}
+                    >
+                      {isUpdating
+                        ? <Loader2 size={10} className="animate-spin" style={{ color: "#ef4444" }} />
+                        : <Trash2 size={11} style={{ color: "#ef4444" }} />
+                      }
+                    </button>
+
+                    {/* Qty stepper */}
+                    <div className="flex items-center gap-1"
+                      style={{
+                        border: "1px solid #f0e8d8", borderRadius: 8,
+                        background: "#fff", padding: "2px",
+                      }}>
+                      <button
+                        onClick={() => handleUpdateQty(item, -1)}
+                        disabled={isUpdating || item.quantity <= 1}
+                        className="flex items-center justify-center cursor-pointer transition-all active:scale-95"
+                        style={{
+                          width: 24, height: 24, borderRadius: 6,
+                          background: item.quantity <= 1 ? "#f9f9f9" : "#f0e8d8",
+                          border: "none",
+                          opacity: isUpdating || item.quantity <= 1 ? 0.4 : 1,
+                          cursor: item.quantity <= 1 ? "not-allowed" : "pointer",
+                        }}
+                      >
+                        <Minus size={10} style={{ color: "#111" }} />
+                      </button>
+
+                      <span className="font-black text-center"
+                        style={{ fontSize: 12, color: "#111", minWidth: 20, textAlign: "center" }}>
+                        {isUpdating ? "…" : item.quantity}
+                      </span>
+
+                      <button
+                        onClick={() => handleUpdateQty(item, 1)}
+                        disabled={isUpdating}
+                        className="flex items-center justify-center cursor-pointer transition-all active:scale-95"
+                        style={{
+                          width: 24, height: 24, borderRadius: 6,
+                          background: "#F7A221", border: "none",
+                          opacity: isUpdating ? 0.4 : 1,
+                        }}
+                      >
+                        <Plus size={10} style={{ color: "#111" }} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Price breakdown */}
+          <div className="px-4 pb-4 pt-2 space-y-2"
+            style={{ borderTop: "1px solid #f0e8d8" }}>
+            {[
+              { label: "Subtotal", value: fmt(subtotal) },
+              ...(discount > 0 ? [{ label: "Discount", value: `- ${fmt(discount)}`, green: true }] : []),
+              {
+                label: "Shipping",
+                value: delivery === 0 ? "FREE" : fmt(delivery),
+                green: delivery === 0,
+                muted: delivery > 0,
+              },
+              { label: "GST", value: fmt(gst) },
+            ].map(({ label, value, green, muted }) => (
+              <div key={label} className="flex justify-between items-center">
+                <span style={{ fontSize: 13, color: "#6b7280" }}>{label}</span>
+                <span style={{
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: green ? "#15803D" : "#374151",
+                }}>{value}</span>
+              </div>
+            ))}
+
+            <div className="flex justify-between items-center pt-2"
+              style={{ borderTop: "1px solid #f0e8d8" }}>
+              <span className="font-black" style={{ fontSize: 14, color: "#111" }}>Total</span>
+              <span className="font-black" style={{ fontSize: 14, color: "#F7A221" }}>
+                {fmt(total)}
+              </span>
+            </div>
+
+            {quote?.deliveryEstimate && (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-xl mt-1"
+                style={{ background: "#F0FFF4", border: "1px solid #BBF7D0" }}>
+                <Truck size={12} style={{ color: "#15803D" }} />
+                <span className="font-bold" style={{ fontSize: 11, color: "#15803D" }}>
+                  {quote.deliveryEstimate}
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Checkout — Main Component
 // ─────────────────────────────────────────────────────────────────────────────
 const Checkout = () => {
   const dispatch = useDispatch();
   const navigate = useNavigate();
 
-  // Redux state
+  // ── Redux selectors ────────────────────────────────────────────────────────
   const quote = useSelector(selectQuote);
   const quoteId = useSelector(selectQuoteId);
-  const confirmed = useSelector(selectConfirmed);
   const placedOrder = useSelector(selectPlacedOrder);
   const selectedAddressId = useSelector(selectSelectedAddressId);
   const paymentMethod = useSelector(selectPaymentMethod);
@@ -149,50 +459,72 @@ const Checkout = () => {
   const razorpayKeyLoading = useSelector(selectRazorpayKeyLoading);
   const razorpayKeyError = useSelector(selectRazorpayKeyError);
   const paymentVerification = useSelector(selectPaymentVerification);
-
   const defaultAddr = useSelector(selectDefaultAddress);
   const otherAddrs = useSelector(selectOtherAddresses);
+  const addressLoading = useSelector(selectAddressLoading);
+  const addressError = useSelector(selectAddressError);
   const cartItems = useSelector(selectCartItems);
   const cartCount = useSelector(selectDisplayCartCount);
+  const cartLoading = useSelector(selectCartLoading);
   const user = useSelector(selectUser);
 
-  // Local state
+  // ── Local state ────────────────────────────────────────────────────────────
   const [step, setStep] = useState(1);
   const [showAddressModal, setShowAddressModal] = useState(false);
   const [showRazorpay, setShowRazorpay] = useState(false);
   const [razorpayOrderData, setRazorpayOrderData] = useState(null);
   const [paymentError, setPaymentError] = useState(null);
   const [showPaymentErrorModal, setShowPaymentErrorModal] = useState(false);
+
+  // Payment state machine
+  const [razorpayPaymentState, setRazorpayPaymentState] = useState(PAYMENT_STATE.IDLE);
+
+  // Place order single-fire guard
   const [isPlacingOrder, setIsPlacingOrder] = useState(false);
+  const placeOrderInFlight = useRef(false);
+  const checkoutAttemptKeyRef = useRef(null);
 
-  const allAddresses = [
-    ...(defaultAddr ? [defaultAddr] : []),
-    ...otherAddrs,
-  ];
-  const selectedAddress = allAddresses.find((a) => a._id === selectedAddressId);
+  // Derived
+  const allAddresses = [...(defaultAddr ? [defaultAddr] : []), ...otherAddrs];
+  const selectedAddress = allAddresses.find(a => a._id === selectedAddressId);
+  const advanceAmount = quote?.amountPayable
+    ? Math.round((quote.amountPayable * 25) / 100) : 0;
 
-  // Fetch Razorpay key when online payment is selected
+  // ── Scroll to top on mount and step change ─────────────────────────────────
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [step]);
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }, []);
+
+  useEffect(() => {
+    checkoutAttemptKeyRef.current = null;
+  }, [selectedAddressId]);
+
+  // ── Fetch Razorpay key when online selected ────────────────────────────────
   useEffect(() => {
     if (paymentMethod === "online" && !razorpayKey && !razorpayKeyLoading && !razorpayKeyError) {
       dispatch(getRazorpayKey());
     }
   }, [paymentMethod, razorpayKey, razorpayKeyLoading, razorpayKeyError, dispatch]);
 
-  // Guard: redirect to cart if cart is empty
+  // ── Guard: empty cart → home ───────────────────────────────────────────────
   useEffect(() => {
     if (!loading.quote && cartItems.length === 0 && !placedOrder) {
       navigate("/", { replace: true });
     }
   }, [cartItems.length, placedOrder, loading.quote, navigate]);
 
-  // Fetch quote when selected address changes and we're on step 2
+  // ── Fetch quote on step 2 ──────────────────────────────────────────────────
   useEffect(() => {
     if (step === 2 && selectedAddressId && !quote && !loading.quote) {
       handleFetchQuote();
     }
   }, [step, selectedAddressId]);
 
-  // Cleanup on unmount
+  // ── Cleanup on unmount ─────────────────────────────────────────────────────
   useEffect(() => {
     return () => {
       dispatch(clearCheckoutErrors());
@@ -200,25 +532,38 @@ const Checkout = () => {
     };
   }, [dispatch]);
 
-  useEffect(()=>{
-    window.scrollTo({ top: 0, behavior: "smooth"})
-  }, [])
-
   // ── Handlers ──────────────────────────────────────────────────────────────
 
   const handleFetchQuote = async () => {
     if (!selectedAddressId) return;
     try {
-      await dispatch(
-        fetchCheckoutQuote({
-          addressId: selectedAddressId,
-          paymentMethodHint: paymentMethod,
-        })
-      ).unwrap();
+      await dispatch(fetchCheckoutQuote({
+        addressId: selectedAddressId,
+        paymentMethodHint: paymentMethod || undefined,
+      })).unwrap();
     } catch (e) {
       toast.error(e?.message || "Could not get delivery quote", { theme: "dark" });
     }
   };
+
+  const handleQuoteRefreshAfterCartMutation = useCallback(async () => {
+    checkoutAttemptKeyRef.current = null;
+    dispatch(resetQuote());
+
+    if (!selectedAddressId || step !== 2) {
+      return;
+    }
+
+    try {
+      await dispatch(fetchCheckoutQuote({
+        addressId: selectedAddressId,
+        paymentMethodHint: paymentMethod || undefined,
+      })).unwrap();
+      toast.info("Checkout totals refreshed.", { theme: "dark" });
+    } catch (refreshError) {
+      toast.error(refreshError?.message || "Could not refresh checkout totals", { theme: "dark" });
+    }
+  }, [dispatch, paymentMethod, selectedAddressId, step]);
 
   const handleStep1Next = () => {
     if (!selectedAddressId) {
@@ -227,606 +572,631 @@ const Checkout = () => {
     }
     setStep(2);
     if (!quote) {
-      dispatch(
-        fetchCheckoutQuote({
-          addressId: selectedAddressId,
-          paymentMethodHint: paymentMethod,
-        })
-      );
+      dispatch(fetchCheckoutQuote({
+        addressId: selectedAddressId,
+        paymentMethodHint: paymentMethod || undefined,
+      }));
     }
   };
 
   const handlePaymentMethodSelect = (method) => {
+    checkoutAttemptKeyRef.current = null;
     dispatch(setPaymentMethod(method));
-    if (method === "online") {
-      // Reset payment plan to full when switching to online
-      dispatch(setPaymentPlan("full"));
-    }
-    // Re-fetch quote for the new payment method
+    if (method === "online") dispatch(setPaymentPlan("full"));
     if (quote && selectedAddressId) {
       dispatch(resetQuote());
       dispatch(setSelectedAddress(selectedAddressId));
-      dispatch(
-        fetchCheckoutQuote({
-          addressId: selectedAddressId,
-          paymentMethodHint: method,
-        })
-      );
+      dispatch(fetchCheckoutQuote({
+        addressId: selectedAddressId,
+        paymentMethodHint: method || undefined,
+      }));
     }
   };
 
   const handlePaymentPlanSelect = (plan) => {
+    checkoutAttemptKeyRef.current = null;
     dispatch(setPaymentPlan(plan));
-    // Re-fetch quote for the new payment plan (affects totals for advance)
     if (quote && selectedAddressId) {
       dispatch(resetQuote());
       dispatch(setSelectedAddress(selectedAddressId));
-      dispatch(
-        fetchCheckoutQuote({
-          addressId: selectedAddressId,
-          paymentMethodHint: paymentMethod,
-        })
-      );
+      dispatch(fetchCheckoutQuote({
+        addressId: selectedAddressId,
+        paymentMethodHint: paymentMethod || undefined,
+      }));
     }
   };
 
+  // ── Add address directly (no UserAddress page) ────────────────────────────
+  const handleAddAddressSubmit = async (formData) => {
+    try {
+      await dispatch(addAddress(formData)).unwrap();
+      toast.success("Address added!", { theme: "dark" });
+      setShowAddressModal(false);
+      dispatch(clearAddressErrors());
+    } catch (e) {
+      toast.error(e?.message || "Failed to save address", { theme: "dark" });
+    }
+  };
+
+  const handleAddAddressClose = () => {
+    setShowAddressModal(false);
+    dispatch(clearAddressErrors());
+  };
+
+  // ── Place order — guarded against double-fire ─────────────────────────────
   const handlePlaceOrder = async () => {
+    // Guard: prevent double-click / multiple calls
+    if (placeOrderInFlight.current || isPlacingOrder) return;
     if (!quoteId || !selectedAddressId) {
-      toast.error("Missing quote or address. Please refresh the page.", { theme: "dark" });
+      toast.error("Missing quote or address. Please refresh.", { theme: "dark" });
+      return;
+    }
+    if (!paymentMethod) {
+      toast.error("Please select a payment method before placing your order.", { theme: "dark" });
       return;
     }
 
+    placeOrderInFlight.current = true;
     setIsPlacingOrder(true);
 
     try {
-      // Step 1: Confirm the quote
-      const confirmResult = await dispatch(
-        confirmCheckoutQuote({
-          quoteId,
-          paymentMethod,
-          paymentPlan,
-        })
-      ).unwrap();
+      const idempotencyKey =
+        checkoutAttemptKeyRef.current || createCheckoutAttemptKey();
+      checkoutAttemptKeyRef.current = idempotencyKey;
 
-      // Step 2: Create order
-      const orderResult = await dispatch(
-        placeOrder({
-          addressId: selectedAddressId,
-          paymentMethod,
-          quoteId: confirmResult.quoteId || quoteId,
-          onlinePaymentMode: paymentPlan,
-        })
-      ).unwrap();
+      // Step 1: Confirm quote
+      const confirmResult = await dispatch(confirmCheckoutQuote({
+        quoteId, paymentMethod, paymentPlan,
+      })).unwrap();
 
-      // Step 3: Handle based on payment method
+      // Step 2: Place order
+      const orderResult = await dispatch(placeOrder({
+        addressId: selectedAddressId,
+        paymentMethod,
+        quoteId: confirmResult.quoteId || quoteId,
+        onlinePaymentMode: paymentPlan,
+        idempotencyKey,
+      })).unwrap();
+
+      // Step 3: Handle by payment method
       if (paymentMethod === "cod") {
         toast.success("🎉 Order placed successfully!", { theme: "dark", autoClose: 3000 });
-        // Wait a bit before redirecting so user sees success
+        checkoutAttemptKeyRef.current = null;
         setTimeout(() => {
           dispatch(resetCheckout());
           navigate("/account/userorders");
         }, 1500);
       } else if (paymentMethod === "online") {
-        // Check if we have razorpay order data
         if (!orderResult.razorpayOrder) {
-          throw new Error(orderResult.razorpayErrorDetail?.description || "Failed to initiate payment. Please try again.");
+          throw new Error(
+            orderResult.razorpayErrorDetail?.description ||
+            "Failed to initiate payment. Please try again."
+          );
         }
-        
-        // Check if razorpay key is available
         if (!razorpayKey && !razorpayKeyLoading) {
           await dispatch(getRazorpayKey()).unwrap();
         }
-        
         if (!razorpayKey && razorpayKeyError) {
-          throw new Error("Payment gateway not configured. Please contact support or try COD.");
+          throw new Error("Payment gateway not configured. Please use COD.");
         }
-        
+        setRazorpayPaymentState(PAYMENT_STATE.IDLE);
         setRazorpayOrderData(orderResult.razorpayOrder);
         setShowRazorpay(true);
       }
     } catch (e) {
-      const errorMessage = e?.message || "Failed to place order";
-      
-      // Handle specific error cases
-      if (e?.code === "QUOTE_STALE") {
-        toast.info("Prices updated — please review and confirm", { theme: "dark" });
-        dispatch(fetchCheckoutQuote({ addressId: selectedAddressId, paymentMethodHint: paymentMethod }));
+      const msg = e?.message || "Failed to place order";
+      if (isQuoteRefreshError(e?.code)) {
+        checkoutAttemptKeyRef.current = null;
+        toast.info(msg, { theme: "dark" });
+        dispatch(fetchCheckoutQuote({
+          addressId: selectedAddressId,
+          paymentMethodHint: paymentMethod || undefined,
+        }));
+      } else if (e?.code === "IDEMPOTENCY_REQUEST_IN_PROGRESS") {
+        toast.info("Your order is already being processed. Please wait a moment.", { theme: "dark" });
+      } else if (e?.code === "IDEMPOTENCY_KEY_REUSED") {
+        checkoutAttemptKeyRef.current = null;
+        toast.error("Checkout session changed. Please place the order again.", { theme: "dark" });
       } else if (e?.code === "MISSING_RAZORPAY_ENV") {
         toast.error("Payment not configured. Please use COD for now.", { theme: "dark" });
       } else {
-        toast.error(errorMessage, { theme: "dark" });
+        toast.error(msg, { theme: "dark" });
       }
-      
-      setPaymentError(errorMessage);
+      setPaymentError(msg);
       setShowPaymentErrorModal(true);
     } finally {
       setIsPlacingOrder(false);
+      placeOrderInFlight.current = false;
     }
   };
 
-const handleRazorpaySuccess = async (response) => {
-  // Razorpay modal is already closed by the component
-  // Show loading modal while verifying
-  setShowRazorpay(false);
-  
-  try {
-    // Get the orderId from placedOrder or from the response notes
-    const currentOrderId = placedOrder?.order?.orderId || response.notes?.orderId;
-    
-    if (!currentOrderId) {
-      throw new Error("Order ID not found. Please contact support.");
-    }
-    
-    // Verify payment on backend
-    await dispatch(
-      verifyRazorpayPayment({
+  // ── Razorpay callbacks ─────────────────────────────────────────────────────
+
+  const handleRazorpaySuccess = async (response) => {
+    // paymentState is already "success" (set inside RazorpayCheckout before this fires)
+    // Razorpay modal may or may not have closed — either way we show verification overlay
+    setShowRazorpay(false);
+    try {
+      const currentOrderId = placedOrder?.order?.orderId || response.notes?.orderId;
+      if (!currentOrderId) throw new Error("Order ID not found. Please contact support.");
+
+      await dispatch(verifyRazorpayPayment({
         razorpay_order_id: response.razorpay_order_id,
         razorpay_payment_id: response.razorpay_payment_id,
         razorpay_signature: response.razorpay_signature,
         orderId: currentOrderId,
-      })
-    ).unwrap();
-    
-    toast.success("🎉 Payment successful! Order confirmed.", { theme: "dark", autoClose: 3000 });
-    
-    // Clear checkout state and redirect to orders page
-    setTimeout(() => {
-      dispatch(resetCheckout());
-      navigate("/account/userorders");
-    }, 1500);
-  } catch (err) {
-    console.error("Payment verification failed:", err);
-    setPaymentError(err?.message || "Payment verification failed. Please contact support.");
-    setShowPaymentErrorModal(true);
-  }
-};
+      })).unwrap();
 
-  const handleRazorpayFailure = (error) => {
+      setRazorpayPaymentState(PAYMENT_STATE.VERIFIED);
+      checkoutAttemptKeyRef.current = null;
+      toast.success("🎉 Payment verified! Order confirmed.", { theme: "dark", autoClose: 3000 });
+      setTimeout(() => {
+        dispatch(resetCheckout());
+        navigate("/account/userorders");
+      }, 1500);
+    } catch (err) {
+      setRazorpayPaymentState(PAYMENT_STATE.FAILED);
+      const verificationMessage = err?.code === "PAYMENT_NOT_CAPTURED_YET"
+        ? "Payment is received but capture is still pending. Please wait a moment and check your orders again."
+        : (err?.message || "Payment verification failed. Please contact support.");
+      setPaymentError(verificationMessage);
+      setShowPaymentErrorModal(true);
+    }
+  };
+
+  const handleRazorpayFailure = (errorMsg) => {
     setShowRazorpay(false);
-    setPaymentError(error || "Payment failed. Please try again.");
+    setRazorpayPaymentState(PAYMENT_STATE.FAILED);
+    setPaymentError(errorMsg || "Payment failed. Please try again.");
     setShowPaymentErrorModal(true);
   };
 
   const handleRazorpayClose = () => {
+    // Only called when state was "initiated" (user cancelled) — from state machine
     setShowRazorpay(false);
-    toast.info("Payment cancelled. You can try again or choose COD.", { theme: "dark" });
+    setRazorpayPaymentState(PAYMENT_STATE.CANCELLED);
+    toast.info("Payment cancelled. Choose COD or try again.", { theme: "dark" });
+    // Stay on Step 2 — do NOT reset checkout
   };
 
   const handleRetryPayment = () => {
     setShowPaymentErrorModal(false);
     setPaymentError(null);
-    // Retry the order placement
+    setRazorpayPaymentState(PAYMENT_STATE.IDLE);
     handlePlaceOrder();
   };
 
-  // ── Order placed — show success screen ───────────────────────────────────
+  // ── Derived button state ───────────────────────────────────────────────────
+  const isPlaceOrderDisabled =
+    !quote ||
+    !paymentMethod ||
+    loading.quote ||
+    loading.confirm ||
+    loading.placeOrder ||
+    isPlacingOrder ||
+    paymentVerification.loading ||
+    (paymentMethod === "online" && !razorpayKey && !razorpayKeyLoading && !razorpayKeyError);
+
+  // ── Success screens ────────────────────────────────────────────────────────
   if (placedOrder?.order && paymentMethod === "cod" && !paymentVerification.loading) {
     return (
       <OrderSuccess
         order={{ ...placedOrder.order, paymentMethod: placedOrder.paymentMethod }}
-        onViewOrders={() => {
-          dispatch(resetCheckout());
-          navigate("/account/userorders");
-        }}
+        onViewOrders={() => { dispatch(resetCheckout()); navigate("/account/userorders"); }}
       />
     );
   }
-
-  // For online orders, show success only after verification
   if (placedOrder?.order && paymentMethod === "online" && paymentVerification.success) {
     return (
       <OrderSuccess
         order={{ ...placedOrder.order, paymentMethod: placedOrder.paymentMethod }}
-        onViewOrders={() => {
-          dispatch(resetCheckout());
-          navigate("/account/userorders");
-        }}
+        onViewOrders={() => { dispatch(resetCheckout()); navigate("/account/userorders"); }}
       />
     );
   }
 
-  // Calculate advance amount for display
-  const advanceAmount = quote?.amountPayable ? Math.round(quote.amountPayable * 25 / 100) : 0;
-
-  // ── Main render ──────────────────────────────────────────────────────────
+  // ── Main render ────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white border-b border-gray-100 sticky top-0 z-40">
-        <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
-          <button
-            onClick={() => step === 1 ? navigate(-1) : setStep(1)}
-            className="flex items-center gap-2 text-gray-500 hover:text-black transition-colors cursor-pointer"
-          >
-            <ArrowLeft size={18} />
-            <span className="text-xs font-black uppercase tracking-widest">
-              {step === 1 ? "Back to Cart" : "Back"}
-            </span>
-          </button>
+    <div className="min-h-screen" style={{ background: "#FFFBF4" }}>
 
-          <h1 className="text-sm font-black uppercase tracking-widest text-gray-900">
-            Checkout
-          </h1>
+      {/* ── Sticky Header ── */}
+      <header className="sticky top-0 z-50 flex items-center justify-between px-4"
+        style={{ background: "#fff", borderBottom: "1px solid #f0e8d8", height: 56 }}>
+        <button
+          onClick={() => step === 1 ? navigate(-1) : setStep(1)}
+          className="flex items-center gap-1.5 cursor-pointer transition-colors"
+          style={{ background: "none", border: "none", color: "#9ca3af" }}
+          onMouseEnter={e => e.currentTarget.style.color = "#111"}
+          onMouseLeave={e => e.currentTarget.style.color = "#9ca3af"}
+        >
+          <ArrowLeft size={18} />
+          <span className="font-black text-xs uppercase tracking-widest">
+            {step === 1 ? "Cart" : "Back"}
+          </span>
+        </button>
 
-          <div className="flex items-center gap-2">
-            {[
-              { n: 1, label: "Address" },
-              { n: 2, label: "Payment" },
-            ].map(({ n, label }) => (
-              <div key={n} className="flex items-center gap-1.5">
-                <div
-                  className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black transition-all ${
-                    step >= n ? "bg-black text-white" : "bg-gray-100 text-gray-400"
-                  }`}
-                >
-                  {step > n ? "✓" : n}
-                </div>
-                <span className={`text-[10px] font-bold uppercase tracking-wider hidden sm:block ${
-                  step >= n ? "text-gray-900" : "text-gray-400"
-                }`}>
-                  {label}
-                </span>
-                {n < 2 && <ChevronRight size={12} className="text-gray-300" />}
-              </div>
-            ))}
-          </div>
-        </div>
+        {/* Logo */}
+        <span className="font-black text-lg select-none" style={{ letterSpacing: "-0.02em" }}>
+          <span style={{ color: "#111" }}>Offer</span>
+          <span style={{ color: "#F7A221" }}>Wale</span>
+          <span style={{ color: "#111" }}>Baba</span>
+        </span>
+
+        {/* Spacer */}
+        <div style={{ width: 72 }} />
       </header>
 
-      {/* Body */}
-      <div className="max-w-5xl mx-auto px-4 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-8">
+      {/* ── Step Indicator ── */}
+      <StepIndicator step={step} />
 
-          {/* ── Left Panel ── */}
-          <div className="space-y-6">
+      {/* ── Body ── */}
+      <div className="px-4 py-5 space-y-4" style={{ maxWidth: 520, margin: "0 auto" }}>
 
-            {/* Global error */}
-            {(error.quote || error.confirm || error.placeOrder) && (
-              <div className="flex items-start gap-3 bg-red-50 border border-red-100 rounded-2xl px-4 py-4">
-                <AlertCircle size={16} className="text-red-500 flex-shrink-0 mt-0.5" />
-                <div className="flex-1">
-                  <p className="text-xs font-bold text-red-700">
-                    {error.placeOrder?.message ||
-                      error.confirm?.message ||
-                      error.quote?.message}
-                  </p>
-                </div>
-                <button
-                  onClick={() => dispatch(clearCheckoutErrors())}
-                  className="text-red-400 hover:text-red-600 cursor-pointer"
-                >
-                  <X size={14} />
-                </button>
-              </div>
-            )}
-
-            {/* ── Step 1: Address ── */}
-            {step === 1 && (
-              <div className="bg-white rounded-[32px] p-6 sm:p-8 shadow-sm">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="w-8 h-8 bg-black rounded-full flex items-center justify-center text-white text-xs font-black">1</div>
-                  <h2 className="text-lg font-black text-gray-900">Delivery Address</h2>
-                </div>
-
-                <AddressSelector
-                  onAddAddress={() => setShowAddressModal(true)}
-                />
-
-                <button
-                  onClick={handleStep1Next}
-                  disabled={!selectedAddressId}
-                  className="mt-6 w-full py-4 bg-black text-white rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-[#F7A221] hover:text-black disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
-                >
-                  Continue to Payment <ChevronRight size={16} />
-                </button>
-              </div>
-            )}
-
-            {/* ── Step 2: Payment ── */}
-            {step === 2 && (
-              <div className="bg-white rounded-[32px] p-6 sm:p-8 shadow-sm">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="w-8 h-8 bg-black rounded-full flex items-center justify-center text-white text-xs font-black">2</div>
-                  <h2 className="text-lg font-black text-gray-900">Payment Method</h2>
-                </div>
-
-                {/* Selected address summary */}
-                {selectedAddress && (
-                  <div className="bg-gray-50 rounded-2xl p-4 mb-6 flex items-start gap-3">
-                    <MapPin size={14} className="text-[#F7A221] mt-0.5 flex-shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-black text-gray-500 uppercase tracking-widest mb-1">
-                        Delivering to
-                      </p>
-                      <p className="text-sm font-black text-gray-900">{selectedAddress.fullName}</p>
-                      <p className="text-xs text-gray-500 font-medium mt-0.5 truncate">
-                        {[selectedAddress.houseNumber, selectedAddress.area, selectedAddress.city]
-                          .filter(Boolean)
-                          .join(", ")}{" "}
-                        — {selectedAddress.postalCode}
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => { setStep(1); }}
-                      className="text-[10px] font-black uppercase tracking-widest text-[#F7A221] hover:text-black transition-colors cursor-pointer whitespace-nowrap"
-                    >
-                      Change
-                    </button>
-                  </div>
-                )}
-
-                {/* Payment options */}
-                <div className="space-y-3">
-                  {/* COD */}
-                  <button
-                    type="button"
-                    onClick={() => handlePaymentMethodSelect("cod")}
-                    className={`w-full text-left p-4 rounded-[24px] border-2 transition-all cursor-pointer ${
-                      paymentMethod === "cod"
-                        ? "border-black bg-black/[0.02]"
-                        : "border-gray-100 hover:border-gray-300"
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className={`w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${
-                        paymentMethod === "cod" ? "border-black bg-black" : "border-gray-300"
-                      }`}>
-                        {paymentMethod === "cod" && <div className="w-2 h-2 bg-white rounded-full" />}
-                      </div>
-                      <div className="w-10 h-10 bg-green-50 rounded-xl flex items-center justify-center flex-shrink-0">
-                        <Banknote size={18} className="text-green-600" />
-                      </div>
-                      <div>
-                        <p className="font-black text-sm text-gray-900">Cash on Delivery</p>
-                        <p className="text-xs text-gray-400 font-medium mt-0.5">
-                          Pay when your order arrives
-                        </p>
-                      </div>
-                    </div>
-                  </button>
-
-                  {/* Online / Razorpay */}
-                  <button
-                    type="button"
-                    onClick={() => handlePaymentMethodSelect("online")}
-                    className={`w-full text-left p-4 rounded-[24px] border-2 transition-all cursor-pointer ${
-                      paymentMethod === "online"
-                        ? "border-black bg-black/[0.02]"
-                        : "border-gray-100 hover:border-gray-300"
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className={`w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${
-                        paymentMethod === "online" ? "border-black bg-black" : "border-gray-300"
-                      }`}>
-                        {paymentMethod === "online" && <div className="w-2 h-2 bg-white rounded-full" />}
-                      </div>
-                      <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center flex-shrink-0">
-                        <CreditCard size={18} className="text-blue-500" />
-                      </div>
-                      <div>
-                        <p className="font-black text-sm text-gray-900">Pay Online</p>
-                        <p className="text-xs text-gray-400 font-medium mt-0.5">
-                          UPI, Cards, Net Banking via Razorpay
-                        </p>
-                      </div>
-                    </div>
-                  </button>
-                </div>
-
-                {/* Payment Plan Selector (only for online) */}
-                {paymentMethod === "online" && (
-                  <div className="mt-5 pt-3 border-t border-gray-100">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-3">
-                      Payment Plan
-                    </p>
-                    <div className="flex gap-3">
-                      <button
-                        onClick={() => handlePaymentPlanSelect("full")}
-                        className={`flex-1 p-3 rounded-xl border-2 transition-all ${
-                          paymentPlan === "full"
-                            ? "border-black bg-black text-white"
-                            : "border-gray-200 bg-white text-gray-700"
-                        }`}
-                      >
-                        <div className="text-center">
-                          <span className="text-xs font-black">Pay Full</span>
-                          <p className="text-[11px] mt-1 opacity-80">{fmt(quote?.amountPayable)}</p>
-                        </div>
-                      </button>
-                      <button
-                        onClick={() => handlePaymentPlanSelect("advance")}
-                        className={`flex-1 p-3 rounded-xl border-2 transition-all ${
-                          paymentPlan === "advance"
-                            ? "border-black bg-black text-white"
-                            : "border-gray-200 bg-white text-gray-700"
-                        }`}
-                      >
-                        <div className="text-center">
-                          <div className="flex items-center justify-center gap-1">
-                            <span className="text-xs font-black">Pay Advance</span>
-                            <Clock size={10} />
-                          </div>
-                          <p className="text-[11px] mt-1 opacity-80">
-                            {fmt(advanceAmount)} + {fmt(quote?.amountPayable - advanceAmount)} later
-                          </p>
-                        </div>
-                      </button>
-                    </div>
-                    {paymentPlan === "advance" && (
-                      <p className="text-[10px] text-blue-500 font-medium mt-2 text-center">
-                        Pay 25% now, remaining at delivery
-                      </p>
-                    )}
-                  </div>
-                )}
-
-                {/* Razorpay key error warning */}
-                {paymentMethod === "online" && razorpayKeyError && (
-                  <div className="mt-4 bg-yellow-50 border border-yellow-200 rounded-2xl p-3">
-                    <p className="text-[11px] text-yellow-700 font-medium flex items-center gap-2">
-                      <AlertCircle size={12} />
-                      {razorpayKeyError}. Please use COD or try again later.
-                    </p>
-                  </div>
-                )}
-
-                {/* Place order button */}
-                <button
-                  onClick={handlePlaceOrder}
-                  disabled={
-                    !quote ||
-                    loading.quote ||
-                    loading.confirm ||
-                    loading.placeOrder ||
-                    isPlacingOrder ||
-                    paymentVerification.loading ||
-                    (paymentMethod === "online" && (!razorpayKey && !razorpayKeyLoading && !razorpayKeyError))
-                  }
-                  className="mt-6 w-full py-4 bg-black text-white rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-[#F7A221] hover:text-black disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
-                >
-                  {loading.confirm || loading.placeOrder || isPlacingOrder || paymentVerification.loading ? (
-                    <><Loader2 size={16} className="animate-spin" /> 
-                      {paymentVerification.loading ? "Verifying Payment..." : "Placing Order…"}
-                    </>
-                  ) : loading.quote ? (
-                    <><Loader2 size={16} className="animate-spin" /> Getting Quote…</>
-                  ) : (
-                    <>Place Order — {paymentMethod === "online" && paymentPlan === "advance" ? fmt(advanceAmount) : fmt(quote?.amountPayable)}</>
-                  )}
-                </button>
-
-                <p className="text-center text-[10px] text-gray-400 font-bold mt-3">
-                  By placing this order you agree to our Terms & Conditions
-                </p>
-              </div>
-            )}
+        {/* Global error */}
+        {(error.quote || error.confirm || error.placeOrder) && (
+          <div className="flex items-start gap-3 px-4 py-3 rounded-2xl"
+            style={{ background: "#fff5f5", border: "1px solid #fed7d7" }}>
+            <AlertCircle size={15} style={{ color: "#ef4444" }} className="flex-shrink-0 mt-0.5" />
+            <p className="flex-1 text-xs font-bold" style={{ color: "#b91c1c" }}>
+              {error.placeOrder?.message || error.confirm?.message || error.quote?.message}
+            </p>
+            <button onClick={() => dispatch(clearCheckoutErrors())} className="cursor-pointer"
+              style={{ background: "none", border: "none", color: "#fca5a5" }}>
+              <X size={14} />
+            </button>
           </div>
+        )}
 
-          {/* ── Right Panel — Order Summary ── */}
-          <div className="space-y-4">
-            <div className="bg-white rounded-[32px] p-6 shadow-sm">
-              <div className="flex items-center gap-2 mb-5">
-                <ShoppingBag size={16} className="text-gray-400" />
-                <h3 className="text-xs font-black uppercase tracking-widest text-gray-500">
-                  Order Summary
-                </h3>
-                <span className="ml-auto text-xs font-black text-gray-400">
-                  {cartCount} item{cartCount !== 1 ? "s" : ""}
-                </span>
+        {/* ══════════════════════════════════════════════════════
+            STEP 1 — ADDRESS
+        ══════════════════════════════════════════════════════ */}
+        {step === 1 && (
+          <div className="p-4 space-y-4"
+            style={{ background: "#fff", border: "1px solid #f0e8d8", borderRadius: 20 }}>
+            {/* Header */}
+            <div className="flex items-center gap-3">
+              <div className="flex items-center justify-center font-black flex-shrink-0"
+                style={{
+                  width: 30, height: 30, borderRadius: "50%",
+                  background: "#F7A221", color: "#111", fontSize: 14,
+                }}>
+                1
               </div>
-
-              {/* Cart items preview */}
-              <div className="space-y-3 mb-5">
-                {cartItems.slice(0, 3).map((item, i) => {
-                  const matchedVariant = item.product?.variants?.find(
-                    (v) => String(v._id) === String(item.variantId)
-                  ) ?? item.product?.variants?.[0];
-                  const image = matchedVariant?.images?.[0]?.url || null;
-                  const name = item.product?.title || item.product?.name || "Product";
-                  const price = item.price?.sale ?? item.price?.base;
-
-                  return (
-                    <div key={i} className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-gray-100 rounded-xl flex-shrink-0 overflow-hidden">
-                        {image ? (
-                          <img src={image} alt={name} className="w-full h-full object-cover" />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center">
-                            <Package size={14} className="text-gray-300" />
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-bold text-gray-900 truncate">{name}</p>
-                        <p className="text-[11px] text-gray-400 font-medium">
-                          Qty: {item.quantity}
-                        </p>
-                      </div>
-                      <p className="text-xs font-black text-gray-900">
-                        {fmt(price * item.quantity)}
-                      </p>
-                    </div>
-                  );
-                })}
-                {cartItems.length > 3 && (
-                  <p className="text-[10px] text-gray-400 font-bold text-center">
-                    +{cartItems.length - 3} more item{cartItems.length - 3 > 1 ? "s" : ""}
-                  </p>
-                )}
-              </div>
-
-              <div className="border-t border-gray-100 pt-4">
-                {loading.quote && (
-                  <div className="flex items-center justify-center gap-2 py-4 text-gray-400">
-                    <Loader2 size={14} className="animate-spin" />
-                    <span className="text-xs font-bold">Calculating totals…</span>
-                  </div>
-                )}
-
-                {error.quote && !loading.quote && (
-                  <div className="space-y-3">
-                    <p className="text-xs text-red-500 font-bold">{error.quote.message}</p>
-                    {selectedAddressId && (
-                      <button
-                        onClick={handleFetchQuote}
-                        className="w-full py-3 text-xs font-black uppercase tracking-widest text-[#F7A221] hover:text-black border border-[#F7A221] rounded-2xl transition-colors cursor-pointer"
-                      >
-                        Retry Quote
-                      </button>
-                    )}
-                  </div>
-                )}
-
-                {quote && !loading.quote && (
-                  <PriceBreakdown
-                    quote={quote}
-                    itemCount={cartCount}
-                    paymentMethod={paymentMethod}
-                    paymentPlan={paymentPlan}
-                    compact
-                  />
-                )}
-
-                {!quote && !loading.quote && !error.quote && step === 1 && (
-                  <div className="text-center py-2">
-                    <p className="text-xs text-gray-400 font-medium">
-                      Select an address to see delivery charges & final total
-                    </p>
-                  </div>
-                )}
-              </div>
+              <h2 className="font-black text-base" style={{ color: "#111" }}>
+                Delivery Address
+              </h2>
             </div>
 
+            <AddressSelector onAddAddress={() => setShowAddressModal(true)} />
+
+            <button
+              onClick={handleStep1Next}
+              disabled={!selectedAddressId}
+              className="w-full font-black uppercase transition-all active:scale-[0.98] cursor-pointer"
+              style={{
+                background: "#111", color: "#F7A221",
+                borderRadius: 14, padding: "15px 0",
+                fontSize: 13, letterSpacing: "0.04em",
+                border: "none",
+                opacity: !selectedAddressId ? 0.4 : 1,
+                cursor: !selectedAddressId ? "not-allowed" : "pointer",
+              }}
+            >
+              Continue to Payment →
+            </button>
+          </div>
+        )}
+
+        {/* ══════════════════════════════════════════════════════
+            STEP 2 — PAYMENT
+        ══════════════════════════════════════════════════════ */}
+        {step === 2 && (
+          <div className="space-y-4">
+
+            {/* Delivery estimate chip */}
             {quote?.deliveryEstimate && (
-              <div className="bg-white rounded-[28px] p-5 shadow-sm flex items-center gap-3">
-                <Truck size={18} className="text-[#F7A221] flex-shrink-0" />
-                <div>
-                  <p className="text-xs font-black text-gray-900">Estimated Delivery</p>
-                  <p className="text-[11px] text-gray-500 font-medium mt-0.5">
-                    {quote.deliveryEstimate}
-                  </p>
+              <div className="flex items-center gap-2 px-4 py-2.5 rounded-[10px] w-fit"
+                style={{ background: "#F0FFF4", border: "1px solid #BBF7D0" }}>
+                <Truck size={13} style={{ color: "#15803D" }} />
+                <span className="font-bold" style={{ fontSize: 13, color: "#15803D" }}>
+                  {quote.deliveryEstimate}
+                </span>
+              </div>
+            )}
+
+            {/* ── Order Summary (collapsible) ── */}
+            <OrderSummaryCard
+              cartItems={cartItems}
+              cartCount={cartCount}
+              quote={quote}
+              dispatch={dispatch}
+              cartLoading={cartLoading}
+              onCartMutationSuccess={handleQuoteRefreshAfterCartMutation}
+            />
+
+            {/* ── Address done summary ── */}
+            {selectedAddress && (
+              <div className="p-4"
+                style={{ background: "#fff", border: "1px solid #f0e8d8", borderRadius: 18 }}>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center justify-center font-black"
+                      style={{
+                        width: 22, height: 22, borderRadius: "50%",
+                        background: "#111", color: "#F7A221", fontSize: 11,
+                      }}>
+                      ✓
+                    </div>
+                    <span className="font-black text-xs uppercase tracking-widest"
+                      style={{ color: "#111" }}>
+                      Delivering to
+                    </span>
+                  </div>
+                  <button onClick={() => setStep(1)}
+                    className="font-black uppercase cursor-pointer transition-colors"
+                    style={{
+                      fontSize: 10, color: "#F7A221",
+                      background: "none", border: "none", letterSpacing: "0.06em",
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.color = "#111"}
+                    onMouseLeave={e => e.currentTarget.style.color = "#F7A221"}
+                  >
+                    Change
+                  </button>
+                </div>
+                <div className="flex items-start gap-3 px-3 py-3 rounded-xl"
+                  style={{ background: "#FFFBF4" }}>
+                  <div className="flex items-center justify-center flex-shrink-0"
+                    style={{ width: 28, height: 28, borderRadius: 8, background: "#FEF3E2" }}>
+                    <MapPin size={13} style={{ color: "#F7A221" }} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-black" style={{ fontSize: 13, color: "#111" }}>
+                      {selectedAddress.fullName}
+                    </p>
+                    <p className="truncate" style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>
+                      {[selectedAddress.houseNumber, selectedAddress.area, selectedAddress.city]
+                        .filter(Boolean).join(", ")} — {selectedAddress.postalCode}
+                    </p>
+                  </div>
                 </div>
               </div>
             )}
+
+            {/* ── Payment card ── */}
+            <div className="p-4 space-y-4"
+              style={{ background: "#fff", border: "1px solid #f0e8d8", borderRadius: 20 }}>
+
+              {/* Header */}
+              <div className="flex items-center gap-3">
+                <div className="flex items-center justify-center font-black flex-shrink-0"
+                  style={{
+                    width: 30, height: 30, borderRadius: "50%",
+                    background: "#F7A221", color: "#111", fontSize: 14,
+                  }}>
+                  2
+                </div>
+                <h2 className="font-black text-base" style={{ color: "#111" }}>
+                  Payment Method
+                </h2>
+              </div>
+
+              <p className="font-black uppercase"
+                style={{ fontSize: 10, color: "#9ca3af", letterSpacing: "0.06em" }}>
+                Choose How to Pay
+              </p>
+
+              {/* ── COD ── */}
+              <button type="button"
+                onClick={() => handlePaymentMethodSelect("cod")}
+                className="w-full text-left cursor-pointer transition-all active:scale-[0.98]"
+                style={{
+                  padding: 14, borderRadius: 16,
+                  border: `2px solid ${paymentMethod === "cod" ? "#111" : "#f0e8d8"}`,
+                  background: paymentMethod === "cod" ? "#111" : "#fff",
+                  transition: "all 0.2s",
+                }}>
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center justify-center flex-shrink-0"
+                    style={{
+                      width: 20, height: 20, borderRadius: "50%",
+                      border: `2px solid ${paymentMethod === "cod" ? "#F7A221" : "#d1d5db"}`,
+                    }}>
+                    {paymentMethod === "cod" && (
+                      <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#F7A221" }} />
+                    )}
+                  </div>
+                  <div className="flex items-center justify-center flex-shrink-0"
+                    style={{
+                      width: 38, height: 38, borderRadius: 10,
+                      background: paymentMethod === "cod" ? "rgba(255,255,255,0.15)" : "#F0FFF4",
+                    }}>
+                    <Banknote size={17}
+                      style={{ color: paymentMethod === "cod" ? "#fff" : "#16a34a" }} />
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="font-black text-sm"
+                        style={{ color: paymentMethod === "cod" ? "#F7A221" : "#111" }}>
+                        Cash on Delivery
+                      </p>
+                      <span className="font-black"
+                        style={{
+                          fontSize: 9, padding: "2px 7px", borderRadius: 99,
+                          background: paymentMethod === "cod" ? "rgba(255,255,255,0.2)" : "#F7A221",
+                          color: paymentMethod === "cod" ? "#fff" : "#111",
+                        }}>
+                        Popular
+                      </span>
+                    </div>
+                    <p style={{
+                      fontSize: 11, marginTop: 1,
+                      color: paymentMethod === "cod" ? "rgba(247,162,33,0.65)" : "#9ca3af",
+                    }}>
+                      Pay when your order arrives
+                    </p>
+                  </div>
+                </div>
+              </button>
+
+              {/* ── Online ── */}
+              <button type="button"
+                onClick={() => handlePaymentMethodSelect("online")}
+                className="w-full text-left cursor-pointer transition-all active:scale-[0.98]"
+                style={{
+                  padding: 14, borderRadius: 16,
+                  border: `2px solid ${paymentMethod === "online" ? "#F7A221" : "#f0e8d8"}`,
+                  background: "#fff", transition: "all 0.2s",
+                }}>
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center justify-center flex-shrink-0"
+                    style={{
+                      width: 20, height: 20, borderRadius: "50%",
+                      border: `2px solid ${paymentMethod === "online" ? "#F7A221" : "#d1d5db"}`,
+                    }}>
+                    {paymentMethod === "online" && (
+                      <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#F7A221" }} />
+                    )}
+                  </div>
+                  <div className="flex items-center justify-center flex-shrink-0"
+                    style={{ width: 38, height: 38, borderRadius: 10, background: "#EBF8FF" }}>
+                    <CreditCard size={17} style={{ color: "#3b82f6" }} />
+                  </div>
+                  <div>
+                    <p className="font-black text-sm" style={{ color: "#111" }}>Pay Online</p>
+                    <p style={{ fontSize: 11, color: "#9ca3af", marginTop: 1 }}>
+                      UPI · Cards · Net Banking
+                    </p>
+                  </div>
+                </div>
+              </button>
+
+              {/* ── Payment plan (online only) ── */}
+              {paymentMethod === "online" && (
+                <div className="pt-3" style={{ borderTop: "1px solid #f0e8d8" }}>
+                  <p className="font-black uppercase mb-3"
+                    style={{ fontSize: 10, color: "#9ca3af", letterSpacing: "0.06em" }}>
+                    Payment Plan
+                  </p>
+                  <div className="flex gap-3">
+                    {[
+                      { key: "full", label: "Pay Full", sub: fmt(quote?.amountPayable) },
+                      { key: "advance", label: "Pay 25%", sub: `${fmt(advanceAmount)} now` },
+                    ].map(({ key, label, sub }) => (
+                      <button key={key}
+                        onClick={() => handlePaymentPlanSelect(key)}
+                        className="flex-1 cursor-pointer transition-all active:scale-95"
+                        style={{
+                          padding: 12, borderRadius: 12,
+                          border: `2px solid ${paymentPlan === key ? "#111" : "#f0e8d8"}`,
+                          background: paymentPlan === key ? "#111" : "#fff",
+                          color: paymentPlan === key ? "#F7A221" : "#374151",
+                        }}>
+                        <span className="font-black block" style={{ fontSize: 12 }}>{label}</span>
+                        <span className="block mt-0.5 opacity-80" style={{ fontSize: 11 }}>{sub}</span>
+                      </button>
+                    ))}
+                  </div>
+                  {paymentPlan === "advance" && (
+                    <p className="text-center mt-2" style={{ fontSize: 10, color: "#3b82f6" }}>
+                      Pay 25% now · Balance {fmt(quote?.amountPayable - advanceAmount)} at delivery
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Razorpay key error */}
+              {paymentMethod === "online" && razorpayKeyError && (
+                <div className="flex items-center gap-2 px-3 py-3 rounded-2xl"
+                  style={{ background: "#fefce8", border: "1px solid #fde68a" }}>
+                  <AlertCircle size={12} style={{ color: "#d97706" }} />
+                  <p style={{ fontSize: 11, color: "#b45309", fontWeight: 600 }}>
+                    {razorpayKeyError}. Please use COD or try again later.
+                  </p>
+                </div>
+              )}
+
+              {/* Quote loading */}
+              {loading.quote && (
+                <div className="flex items-center justify-center gap-2 py-3"
+                  style={{ color: "#9ca3af" }}>
+                  <Loader2 size={14} className="animate-spin" />
+                  <span style={{ fontSize: 12, fontWeight: 600 }}>
+                    Calculating delivery &amp; taxes…
+                  </span>
+                </div>
+              )}
+
+              {/* ── Place Order Button ── */}
+              <button
+                onClick={handlePlaceOrder}
+                disabled={isPlaceOrderDisabled}
+                className="w-full font-black uppercase flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer"
+                style={{
+                  background: "#F7A221", color: "#111",
+                  borderRadius: 16, padding: "17px 0",
+                  fontSize: 15, letterSpacing: "0.04em",
+                  border: "none",
+                  boxShadow: "0 4px 20px rgba(247,162,33,0.3)",
+                  opacity: isPlaceOrderDisabled ? 0.4 : 1,
+                  cursor: isPlaceOrderDisabled ? "not-allowed" : "pointer",
+                  transition: "all 0.2s",
+                }}
+                onMouseEnter={e => {
+                  if (!isPlaceOrderDisabled) {
+                    e.currentTarget.style.background = "#e08c0a";
+                    e.currentTarget.style.boxShadow = "0 6px 28px rgba(247,162,33,0.45)";
+                  }
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.background = "#F7A221";
+                  e.currentTarget.style.boxShadow = "0 4px 20px rgba(247,162,33,0.3)";
+                }}
+              >
+                {loading.confirm || loading.placeOrder || isPlacingOrder || paymentVerification.loading ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" />
+                    {paymentVerification.loading ? "Verifying Payment…" : "Placing Order…"}
+                  </>
+                ) : loading.quote ? (
+                  <><Loader2 size={16} className="animate-spin" /> Getting Quote…</>
+                ) : (
+                  <>
+                    Place Order —{" "}
+                    {paymentMethod === "online" && paymentPlan === "advance"
+                      ? fmt(advanceAmount)
+                      : fmt(quote?.amountPayable)}
+                  </>
+                )}
+              </button>
+
+              {/* Security line */}
+              <p className="text-center flex items-center justify-center gap-1"
+                style={{ fontSize: 10, color: "#9ca3af" }}>
+                🔒 {paymentMethod === "online" ? "Secured by Razorpay" : "100% Safe Checkout"}
+              </p>
+
+              {/* Terms */}
+              <p className="text-center" style={{ fontSize: 10, color: "#9ca3af" }}>
+                By placing this order you agree to our Terms &amp; Conditions
+              </p>
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
-      {/* Address form modal */}
+      {/* ── Address Form Modal — opens DIRECTLY ── */}
       {showAddressModal && (
         <AddressFormModal
           initial={null}
-          onSubmit={async () => {
-            setShowAddressModal(false);
-          }}
-          onClose={() => setShowAddressModal(false)}
-          isSaving={false}
-          error={null}
+          onSubmit={handleAddAddressSubmit}
+          onClose={handleAddAddressClose}
+          isSaving={addressLoading.add}
+          error={addressError.add}
         />
       )}
 
-      {/* Razorpay Checkout Modal */}
+      {/* ── Razorpay Checkout ── */}
       {showRazorpay && razorpayOrderData && razorpayKey && (
         <RazorpayCheckout
           razorpayOrder={razorpayOrderData}
@@ -836,19 +1206,20 @@ const handleRazorpaySuccess = async (response) => {
           userEmail={user?.email}
           userName={user?.name}
           userPhone={selectedAddress?.phone}
+          paymentState={razorpayPaymentState}
+          onPaymentStateChange={setRazorpayPaymentState}
           onSuccess={handleRazorpaySuccess}
           onFailure={handleRazorpayFailure}
           onClose={handleRazorpayClose}
-          onRetry={handleRetryPayment}
         />
       )}
 
-      {/* Payment verification loading */}
-      {paymentVerification.loading && (
-        <PaymentLoadingModal message="Verifying your payment..." />
+      {/* ── Payment verification overlay ── */}
+      {(paymentVerification.loading || razorpayPaymentState === PAYMENT_STATE.SUCCESS) && (
+        <PaymentLoadingModal message="Verifying your payment… please wait" />
       )}
 
-      {/* Payment Error Modal */}
+      {/* ── Payment Error Modal ── */}
       {showPaymentErrorModal && (
         <PaymentErrorModal
           error={paymentError}
@@ -864,6 +1235,874 @@ const handleRazorpaySuccess = async (response) => {
 };
 
 export default Checkout;
+
+// code is working but upper code have better ui
+
+
+// import React, { useEffect, useState } from "react";
+// import { useNavigate } from "react-router-dom";
+// import { useDispatch, useSelector } from "react-redux";
+// import { toast } from "react-toastify";
+// import {
+//   ChevronRight, ChevronLeft, Loader2, MapPin,
+//   CreditCard, Truck, CheckCircle2, Package,
+//   AlertCircle, ArrowLeft, ShoppingBag, Banknote,
+//   X, Clock,
+// } from "lucide-react";
+
+// // Redux — checkout
+// import {
+//   fetchCheckoutQuote,
+//   confirmCheckoutQuote,
+//   placeOrder,
+//   setSelectedAddress,
+//   setPaymentMethod,
+//   setPaymentPlan,
+//   resetCheckout,
+//   resetQuote ,
+//   clearCheckoutErrors,
+//   selectQuote,
+//   selectQuoteId,
+//   selectConfirmed,
+//   selectPlacedOrder,
+//   selectSelectedAddressId,
+//   selectPaymentMethod,
+//   selectPaymentPlan,
+//   selectCheckoutLoading,
+//   selectCheckoutError,
+//   getRazorpayKey,
+//   selectRazorpayKey,
+//   selectRazorpayKeyLoading,
+//   selectRazorpayKeyError,
+//   verifyRazorpayPayment,
+//   selectPaymentVerification,
+//   resetPaymentVerification,
+// } from "../../components/REDUX_FEATURES/REDUX_SLICES/checkoutSlice/checkoutSlice";
+
+// // Redux — address
+// import {
+//   selectDefaultAddress,
+//   selectOtherAddresses,
+// } from "../../components/REDUX_FEATURES/REDUX_SLICES/Useraddressslice";
+
+// // Redux — cart
+// import {
+//   selectCartItems,
+//   selectDisplayCartCount,
+//   selectCartTotalAmount,
+// } from "../../components/REDUX_FEATURES/REDUX_SLICES/userCartSlice";
+
+// // Redux — auth
+// import { selectUser } from "../../components/REDUX_FEATURES/REDUX_SLICES/authSlice";
+
+// // Components
+// import AddressSelector from "./AddressSelector/AddressSelector";
+// import PriceBreakdown from "./PriceBreakdown/PriceBreakdown";
+// import AddressFormModal from "../User_Dash_Segment/UserSubPages/UserAddress";
+// import RazorpayCheckout, { PaymentErrorModal, PaymentLoadingModal } from "./RazorpayCheckout/RazorpayCheckout";
+
+// const fmt = (n) =>
+//   new Intl.NumberFormat("en-IN", {
+//     style: "currency",
+//     currency: "INR",
+//     maximumFractionDigits: 0,
+//   }).format(n ?? 0);
+
+// // ─────────────────────────────────────────────────────────────────────────────
+// // Order Success Screen
+// // ─────────────────────────────────────────────────────────────────────────────
+// const OrderSuccess = ({ order, onViewOrders }) => (
+//   <div className="min-h-screen bg-white flex items-center justify-center p-6">
+//     <div className="max-w-md w-full text-center space-y-6">
+//       <div className="w-24 h-24 bg-green-50 rounded-full flex items-center justify-center mx-auto">
+//         <CheckCircle2 size={48} className="text-green-500" />
+//       </div>
+//       <div>
+//         <h1 className="text-3xl font-black text-gray-900 tracking-tight">Order Placed!</h1>
+//         <p className="text-gray-500 font-medium mt-2">
+//           {order.paymentMethod === "cod" 
+//             ? "We've received your order and will process it shortly."
+//             : "Payment successful! Your order has been confirmed."}
+//         </p>
+//       </div>
+//       <div className="bg-gray-50 rounded-[28px] p-6 text-left space-y-3">
+//         <div className="flex justify-between items-center">
+//           <span className="text-xs font-black uppercase tracking-widest text-gray-400">Order ID</span>
+//           <span className="text-sm font-black text-gray-900">{order.orderId}</span>
+//         </div>
+//         <div className="flex justify-between items-center">
+//           <span className="text-xs font-black uppercase tracking-widest text-gray-400">
+//             {order.paymentMethod === "cod" ? "Total Amount" : "Amount Paid"}
+//           </span>
+//           <span className="text-sm font-black text-gray-900">{fmt(order.totalAmount)}</span>
+//         </div>
+//         <div className="flex justify-between items-center">
+//           <span className="text-xs font-black uppercase tracking-widest text-gray-400">Payment</span>
+//           <span className="text-sm font-black text-gray-900 uppercase">
+//             {order.paymentMethod === "cod" ? "Cash on Delivery" : "Online Payment"}
+//           </span>
+//         </div>
+//         <div className="flex justify-between items-center">
+//           <span className="text-xs font-black uppercase tracking-widest text-gray-400">Status</span>
+//           <span className="text-xs font-black uppercase tracking-widest text-green-600 bg-green-50 px-3 py-1.5 rounded-full">
+//             {order.orderStatus === "confirmed" ? "Confirmed" : order.orderStatus}
+//           </span>
+//         </div>
+//       </div>
+//       <div className="flex gap-3">
+//         <button
+//           onClick={onViewOrders}
+//           className="flex-1 py-4 bg-black text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-[#F7A221] hover:text-black transition-all cursor-pointer"
+//         >
+//           View Orders
+//         </button>
+//         <a
+//           href="/"
+//           className="flex-1 py-4 border-2 border-gray-200 rounded-2xl font-black text-xs uppercase tracking-widest text-gray-600 hover:border-black hover:text-black transition-all text-center cursor-pointer"
+//         >
+//           Continue Shopping
+//         </a>
+//       </div>
+//     </div>
+//   </div>
+// );
+
+// // ─────────────────────────────────────────────────────────────────────────────
+// // Checkout — Main Page
+// // ─────────────────────────────────────────────────────────────────────────────
+// const Checkout = () => {
+//   const dispatch = useDispatch();
+//   const navigate = useNavigate();
+
+//   // Redux state
+//   const quote = useSelector(selectQuote);
+//   const quoteId = useSelector(selectQuoteId);
+//   const confirmed = useSelector(selectConfirmed);
+//   const placedOrder = useSelector(selectPlacedOrder);
+//   const selectedAddressId = useSelector(selectSelectedAddressId);
+//   const paymentMethod = useSelector(selectPaymentMethod);
+//   const paymentPlan = useSelector(selectPaymentPlan);
+//   const loading = useSelector(selectCheckoutLoading);
+//   const error = useSelector(selectCheckoutError);
+//   const razorpayKey = useSelector(selectRazorpayKey);
+//   const razorpayKeyLoading = useSelector(selectRazorpayKeyLoading);
+//   const razorpayKeyError = useSelector(selectRazorpayKeyError);
+//   const paymentVerification = useSelector(selectPaymentVerification);
+
+//   const defaultAddr = useSelector(selectDefaultAddress);
+//   const otherAddrs = useSelector(selectOtherAddresses);
+//   const cartItems = useSelector(selectCartItems);
+//   const cartCount = useSelector(selectDisplayCartCount);
+//   const user = useSelector(selectUser);
+
+//   // Local state
+//   const [step, setStep] = useState(1);
+//   const [showAddressModal, setShowAddressModal] = useState(false);
+//   const [showRazorpay, setShowRazorpay] = useState(false);
+//   const [razorpayOrderData, setRazorpayOrderData] = useState(null);
+//   const [paymentError, setPaymentError] = useState(null);
+//   const [showPaymentErrorModal, setShowPaymentErrorModal] = useState(false);
+//   const [isPlacingOrder, setIsPlacingOrder] = useState(false);
+
+//   const allAddresses = [
+//     ...(defaultAddr ? [defaultAddr] : []),
+//     ...otherAddrs,
+//   ];
+//   const selectedAddress = allAddresses.find((a) => a._id === selectedAddressId);
+
+//   // Fetch Razorpay key when online payment is selected
+//   useEffect(() => {
+//     if (paymentMethod === "online" && !razorpayKey && !razorpayKeyLoading && !razorpayKeyError) {
+//       dispatch(getRazorpayKey());
+//     }
+//   }, [paymentMethod, razorpayKey, razorpayKeyLoading, razorpayKeyError, dispatch]);
+
+//   // Guard: redirect to cart if cart is empty
+//   useEffect(() => {
+//     if (!loading.quote && cartItems.length === 0 && !placedOrder) {
+//       navigate("/", { replace: true });
+//     }
+//   }, [cartItems.length, placedOrder, loading.quote, navigate]);
+
+//   // Fetch quote when selected address changes and we're on step 2
+//   useEffect(() => {
+//     if (step === 2 && selectedAddressId && !quote && !loading.quote) {
+//       handleFetchQuote();
+//     }
+//   }, [step, selectedAddressId]);
+
+//   // Cleanup on unmount
+//   useEffect(() => {
+//     return () => {
+//       dispatch(clearCheckoutErrors());
+//       dispatch(resetPaymentVerification());
+//     };
+//   }, [dispatch]);
+
+//   useEffect(()=>{
+//     window.scrollTo({ top: 0, behavior: "smooth"})
+//   }, [])
+
+//   // ── Handlers ──────────────────────────────────────────────────────────────
+
+//   const handleFetchQuote = async () => {
+//     if (!selectedAddressId) return;
+//     try {
+//       await dispatch(
+//         fetchCheckoutQuote({
+//           addressId: selectedAddressId,
+//           paymentMethodHint: paymentMethod,
+//         })
+//       ).unwrap();
+//     } catch (e) {
+//       toast.error(e?.message || "Could not get delivery quote", { theme: "dark" });
+//     }
+//   };
+
+//   const handleStep1Next = () => {
+//     if (!selectedAddressId) {
+//       toast.error("Please select a delivery address", { theme: "dark" });
+//       return;
+//     }
+//     setStep(2);
+//     if (!quote) {
+//       dispatch(
+//         fetchCheckoutQuote({
+//           addressId: selectedAddressId,
+//           paymentMethodHint: paymentMethod,
+//         })
+//       );
+//     }
+//   };
+
+//   const handlePaymentMethodSelect = (method) => {
+//     dispatch(setPaymentMethod(method));
+//     if (method === "online") {
+//       // Reset payment plan to full when switching to online
+//       dispatch(setPaymentPlan("full"));
+//     }
+//     // Re-fetch quote for the new payment method
+//     if (quote && selectedAddressId) {
+//       dispatch(resetQuote());
+//       dispatch(setSelectedAddress(selectedAddressId));
+//       dispatch(
+//         fetchCheckoutQuote({
+//           addressId: selectedAddressId,
+//           paymentMethodHint: method,
+//         })
+//       );
+//     }
+//   };
+
+//   const handlePaymentPlanSelect = (plan) => {
+//     dispatch(setPaymentPlan(plan));
+//     // Re-fetch quote for the new payment plan (affects totals for advance)
+//     if (quote && selectedAddressId) {
+//       dispatch(resetQuote());
+//       dispatch(setSelectedAddress(selectedAddressId));
+//       dispatch(
+//         fetchCheckoutQuote({
+//           addressId: selectedAddressId,
+//           paymentMethodHint: paymentMethod,
+//         })
+//       );
+//     }
+//   };
+
+//   const handlePlaceOrder = async () => {
+//     if (!quoteId || !selectedAddressId) {
+//       toast.error("Missing quote or address. Please refresh the page.", { theme: "dark" });
+//       return;
+//     }
+
+//     setIsPlacingOrder(true);
+
+//     try {
+//       // Step 1: Confirm the quote
+//       const confirmResult = await dispatch(
+//         confirmCheckoutQuote({
+//           quoteId,
+//           paymentMethod,
+//           paymentPlan,
+//         })
+//       ).unwrap();
+
+//       // Step 2: Create order
+//       const orderResult = await dispatch(
+//         placeOrder({
+//           addressId: selectedAddressId,
+//           paymentMethod,
+//           quoteId: confirmResult.quoteId || quoteId,
+//           onlinePaymentMode: paymentPlan,
+//         })
+//       ).unwrap();
+
+//       // Step 3: Handle based on payment method
+//       if (paymentMethod === "cod") {
+//         toast.success("🎉 Order placed successfully!", { theme: "dark", autoClose: 3000 });
+//         // Wait a bit before redirecting so user sees success
+//         setTimeout(() => {
+//           dispatch(resetCheckout());
+//           navigate("/account/userorders");
+//         }, 1500);
+//       } else if (paymentMethod === "online") {
+//         // Check if we have razorpay order data
+//         if (!orderResult.razorpayOrder) {
+//           throw new Error(orderResult.razorpayErrorDetail?.description || "Failed to initiate payment. Please try again.");
+//         }
+        
+//         // Check if razorpay key is available
+//         if (!razorpayKey && !razorpayKeyLoading) {
+//           await dispatch(getRazorpayKey()).unwrap();
+//         }
+        
+//         if (!razorpayKey && razorpayKeyError) {
+//           throw new Error("Payment gateway not configured. Please contact support or try COD.");
+//         }
+        
+//         setRazorpayOrderData(orderResult.razorpayOrder);
+//         setShowRazorpay(true);
+//       }
+//     } catch (e) {
+//       const errorMessage = e?.message || "Failed to place order";
+      
+//       // Handle specific error cases
+//       if (e?.code === "QUOTE_STALE") {
+//         toast.info("Prices updated — please review and confirm", { theme: "dark" });
+//         dispatch(fetchCheckoutQuote({ addressId: selectedAddressId, paymentMethodHint: paymentMethod }));
+//       } else if (e?.code === "MISSING_RAZORPAY_ENV") {
+//         toast.error("Payment not configured. Please use COD for now.", { theme: "dark" });
+//       } else {
+//         toast.error(errorMessage, { theme: "dark" });
+//       }
+      
+//       setPaymentError(errorMessage);
+//       setShowPaymentErrorModal(true);
+//     } finally {
+//       setIsPlacingOrder(false);
+//     }
+//   };
+
+// const handleRazorpaySuccess = async (response) => {
+//   // Razorpay modal is already closed by the component
+//   // Show loading modal while verifying
+//   setShowRazorpay(false);
+  
+//   try {
+//     // Get the orderId from placedOrder or from the response notes
+//     const currentOrderId = placedOrder?.order?.orderId || response.notes?.orderId;
+    
+//     if (!currentOrderId) {
+//       throw new Error("Order ID not found. Please contact support.");
+//     }
+    
+//     // Verify payment on backend
+//     await dispatch(
+//       verifyRazorpayPayment({
+//         razorpay_order_id: response.razorpay_order_id,
+//         razorpay_payment_id: response.razorpay_payment_id,
+//         razorpay_signature: response.razorpay_signature,
+//         orderId: currentOrderId,
+//       })
+//     ).unwrap();
+    
+//     toast.success("🎉 Payment successful! Order confirmed.", { theme: "dark", autoClose: 3000 });
+    
+//     // Clear checkout state and redirect to orders page
+//     setTimeout(() => {
+//       dispatch(resetCheckout());
+//       navigate("/account/userorders");
+//     }, 1500);
+//   } catch (err) {
+//     console.error("Payment verification failed:", err);
+//     setPaymentError(err?.message || "Payment verification failed. Please contact support.");
+//     setShowPaymentErrorModal(true);
+//   }
+// };
+
+//   const handleRazorpayFailure = (error) => {
+//     setShowRazorpay(false);
+//     setPaymentError(error || "Payment failed. Please try again.");
+//     setShowPaymentErrorModal(true);
+//   };
+
+//   const handleRazorpayClose = () => {
+//     setShowRazorpay(false);
+//     toast.info("Payment cancelled. You can try again or choose COD.", { theme: "dark" });
+//   };
+
+//   const handleRetryPayment = () => {
+//     setShowPaymentErrorModal(false);
+//     setPaymentError(null);
+//     // Retry the order placement
+//     handlePlaceOrder();
+//   };
+
+//   // ── Order placed — show success screen ───────────────────────────────────
+//   if (placedOrder?.order && paymentMethod === "cod" && !paymentVerification.loading) {
+//     return (
+//       <OrderSuccess
+//         order={{ ...placedOrder.order, paymentMethod: placedOrder.paymentMethod }}
+//         onViewOrders={() => {
+//           dispatch(resetCheckout());
+//           navigate("/account/userorders");
+//         }}
+//       />
+//     );
+//   }
+
+//   // For online orders, show success only after verification
+//   if (placedOrder?.order && paymentMethod === "online" && paymentVerification.success) {
+//     return (
+//       <OrderSuccess
+//         order={{ ...placedOrder.order, paymentMethod: placedOrder.paymentMethod }}
+//         onViewOrders={() => {
+//           dispatch(resetCheckout());
+//           navigate("/account/userorders");
+//         }}
+//       />
+//     );
+//   }
+
+//   // Calculate advance amount for display
+//   const advanceAmount = quote?.amountPayable ? Math.round(quote.amountPayable * 25 / 100) : 0;
+
+//   // ── Main render ──────────────────────────────────────────────────────────
+//   return (
+//     <div className="min-h-screen bg-gray-50">
+//       {/* Header */}
+//       <header className="bg-white border-b border-gray-100 sticky top-0 z-40">
+//         <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
+//           <button
+//             onClick={() => step === 1 ? navigate(-1) : setStep(1)}
+//             className="flex items-center gap-2 text-gray-500 hover:text-black transition-colors cursor-pointer"
+//           >
+//             <ArrowLeft size={18} />
+//             <span className="text-xs font-black uppercase tracking-widest">
+//               {step === 1 ? "Back to Cart" : "Back"}
+//             </span>
+//           </button>
+
+//           <h1 className="text-sm font-black uppercase tracking-widest text-gray-900">
+//             Checkout
+//           </h1>
+
+//           <div className="flex items-center gap-2">
+//             {[
+//               { n: 1, label: "Address" },
+//               { n: 2, label: "Payment" },
+//             ].map(({ n, label }) => (
+//               <div key={n} className="flex items-center gap-1.5">
+//                 <div
+//                   className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black transition-all ${
+//                     step >= n ? "bg-black text-white" : "bg-gray-100 text-gray-400"
+//                   }`}
+//                 >
+//                   {step > n ? "✓" : n}
+//                 </div>
+//                 <span className={`text-[10px] font-bold uppercase tracking-wider hidden sm:block ${
+//                   step >= n ? "text-gray-900" : "text-gray-400"
+//                 }`}>
+//                   {label}
+//                 </span>
+//                 {n < 2 && <ChevronRight size={12} className="text-gray-300" />}
+//               </div>
+//             ))}
+//           </div>
+//         </div>
+//       </header>
+
+//       {/* Body */}
+//       <div className="max-w-5xl mx-auto px-4 py-8">
+//         <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-8">
+
+//           {/* ── Left Panel ── */}
+//           <div className="space-y-6">
+
+//             {/* Global error */}
+//             {(error.quote || error.confirm || error.placeOrder) && (
+//               <div className="flex items-start gap-3 bg-red-50 border border-red-100 rounded-2xl px-4 py-4">
+//                 <AlertCircle size={16} className="text-red-500 flex-shrink-0 mt-0.5" />
+//                 <div className="flex-1">
+//                   <p className="text-xs font-bold text-red-700">
+//                     {error.placeOrder?.message ||
+//                       error.confirm?.message ||
+//                       error.quote?.message}
+//                   </p>
+//                 </div>
+//                 <button
+//                   onClick={() => dispatch(clearCheckoutErrors())}
+//                   className="text-red-400 hover:text-red-600 cursor-pointer"
+//                 >
+//                   <X size={14} />
+//                 </button>
+//               </div>
+//             )}
+
+//             {/* ── Step 1: Address ── */}
+//             {step === 1 && (
+//               <div className="bg-white rounded-[32px] p-6 sm:p-8 shadow-sm">
+//                 <div className="flex items-center gap-3 mb-6">
+//                   <div className="w-8 h-8 bg-black rounded-full flex items-center justify-center text-white text-xs font-black">1</div>
+//                   <h2 className="text-lg font-black text-gray-900">Delivery Address</h2>
+//                 </div>
+
+//                 <AddressSelector
+//                   onAddAddress={() => setShowAddressModal(true)}
+//                 />
+
+//                 <button
+//                   onClick={handleStep1Next}
+//                   disabled={!selectedAddressId}
+//                   className="mt-6 w-full py-4 bg-black text-white rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-[#F7A221] hover:text-black disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
+//                 >
+//                   Continue to Payment <ChevronRight size={16} />
+//                 </button>
+//               </div>
+//             )}
+
+//             {/* ── Step 2: Payment ── */}
+//             {step === 2 && (
+//               <div className="bg-white rounded-[32px] p-6 sm:p-8 shadow-sm">
+//                 <div className="flex items-center gap-3 mb-6">
+//                   <div className="w-8 h-8 bg-black rounded-full flex items-center justify-center text-white text-xs font-black">2</div>
+//                   <h2 className="text-lg font-black text-gray-900">Payment Method</h2>
+//                 </div>
+
+//                 {/* Selected address summary */}
+//                 {selectedAddress && (
+//                   <div className="bg-gray-50 rounded-2xl p-4 mb-6 flex items-start gap-3">
+//                     <MapPin size={14} className="text-[#F7A221] mt-0.5 flex-shrink-0" />
+//                     <div className="flex-1 min-w-0">
+//                       <p className="text-xs font-black text-gray-500 uppercase tracking-widest mb-1">
+//                         Delivering to
+//                       </p>
+//                       <p className="text-sm font-black text-gray-900">{selectedAddress.fullName}</p>
+//                       <p className="text-xs text-gray-500 font-medium mt-0.5 truncate">
+//                         {[selectedAddress.houseNumber, selectedAddress.area, selectedAddress.city]
+//                           .filter(Boolean)
+//                           .join(", ")}{" "}
+//                         — {selectedAddress.postalCode}
+//                       </p>
+//                     </div>
+//                     <button
+//                       onClick={() => { setStep(1); }}
+//                       className="text-[10px] font-black uppercase tracking-widest text-[#F7A221] hover:text-black transition-colors cursor-pointer whitespace-nowrap"
+//                     >
+//                       Change
+//                     </button>
+//                   </div>
+//                 )}
+
+//                 {/* Payment options */}
+//                 <div className="space-y-3">
+//                   {/* COD */}
+//                   <button
+//                     type="button"
+//                     onClick={() => handlePaymentMethodSelect("cod")}
+//                     className={`w-full text-left p-4 rounded-[24px] border-2 transition-all cursor-pointer ${
+//                       paymentMethod === "cod"
+//                         ? "border-black bg-black/[0.02]"
+//                         : "border-gray-100 hover:border-gray-300"
+//                     }`}
+//                   >
+//                     <div className="flex items-center gap-3">
+//                       <div className={`w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${
+//                         paymentMethod === "cod" ? "border-black bg-black" : "border-gray-300"
+//                       }`}>
+//                         {paymentMethod === "cod" && <div className="w-2 h-2 bg-white rounded-full" />}
+//                       </div>
+//                       <div className="w-10 h-10 bg-green-50 rounded-xl flex items-center justify-center flex-shrink-0">
+//                         <Banknote size={18} className="text-green-600" />
+//                       </div>
+//                       <div>
+//                         <p className="font-black text-sm text-gray-900">Cash on Delivery</p>
+//                         <p className="text-xs text-gray-400 font-medium mt-0.5">
+//                           Pay when your order arrives
+//                         </p>
+//                       </div>
+//                     </div>
+//                   </button>
+
+//                   {/* Online / Razorpay */}
+//                   <button
+//                     type="button"
+//                     onClick={() => handlePaymentMethodSelect("online")}
+//                     className={`w-full text-left p-4 rounded-[24px] border-2 transition-all cursor-pointer ${
+//                       paymentMethod === "online"
+//                         ? "border-black bg-black/[0.02]"
+//                         : "border-gray-100 hover:border-gray-300"
+//                     }`}
+//                   >
+//                     <div className="flex items-center gap-3">
+//                       <div className={`w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${
+//                         paymentMethod === "online" ? "border-black bg-black" : "border-gray-300"
+//                       }`}>
+//                         {paymentMethod === "online" && <div className="w-2 h-2 bg-white rounded-full" />}
+//                       </div>
+//                       <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center flex-shrink-0">
+//                         <CreditCard size={18} className="text-blue-500" />
+//                       </div>
+//                       <div>
+//                         <p className="font-black text-sm text-gray-900">Pay Online</p>
+//                         <p className="text-xs text-gray-400 font-medium mt-0.5">
+//                           UPI, Cards, Net Banking via Razorpay
+//                         </p>
+//                       </div>
+//                     </div>
+//                   </button>
+//                 </div>
+
+//                 {/* Payment Plan Selector (only for online) */}
+//                 {paymentMethod === "online" && (
+//                   <div className="mt-5 pt-3 border-t border-gray-100">
+//                     <p className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-3">
+//                       Payment Plan
+//                     </p>
+//                     <div className="flex gap-3">
+//                       <button
+//                         onClick={() => handlePaymentPlanSelect("full")}
+//                         className={`flex-1 p-3 rounded-xl border-2 transition-all ${
+//                           paymentPlan === "full"
+//                             ? "border-black bg-black text-white"
+//                             : "border-gray-200 bg-white text-gray-700"
+//                         }`}
+//                       >
+//                         <div className="text-center">
+//                           <span className="text-xs font-black">Pay Full</span>
+//                           <p className="text-[11px] mt-1 opacity-80">{fmt(quote?.amountPayable)}</p>
+//                         </div>
+//                       </button>
+//                       <button
+//                         onClick={() => handlePaymentPlanSelect("advance")}
+//                         className={`flex-1 p-3 rounded-xl border-2 transition-all ${
+//                           paymentPlan === "advance"
+//                             ? "border-black bg-black text-white"
+//                             : "border-gray-200 bg-white text-gray-700"
+//                         }`}
+//                       >
+//                         <div className="text-center">
+//                           <div className="flex items-center justify-center gap-1">
+//                             <span className="text-xs font-black">Pay Advance</span>
+//                             <Clock size={10} />
+//                           </div>
+//                           <p className="text-[11px] mt-1 opacity-80">
+//                             {fmt(advanceAmount)} + {fmt(quote?.amountPayable - advanceAmount)} later
+//                           </p>
+//                         </div>
+//                       </button>
+//                     </div>
+//                     {paymentPlan === "advance" && (
+//                       <p className="text-[10px] text-blue-500 font-medium mt-2 text-center">
+//                         Pay 25% now, remaining at delivery
+//                       </p>
+//                     )}
+//                   </div>
+//                 )}
+
+//                 {/* Razorpay key error warning */}
+//                 {paymentMethod === "online" && razorpayKeyError && (
+//                   <div className="mt-4 bg-yellow-50 border border-yellow-200 rounded-2xl p-3">
+//                     <p className="text-[11px] text-yellow-700 font-medium flex items-center gap-2">
+//                       <AlertCircle size={12} />
+//                       {razorpayKeyError}. Please use COD or try again later.
+//                     </p>
+//                   </div>
+//                 )}
+
+//                 {/* Place order button */}
+//                 <button
+//                   onClick={handlePlaceOrder}
+//                   disabled={
+//                     !quote ||
+//                     loading.quote ||
+//                     loading.confirm ||
+//                     loading.placeOrder ||
+//                     isPlacingOrder ||
+//                     paymentVerification.loading ||
+//                     (paymentMethod === "online" && (!razorpayKey && !razorpayKeyLoading && !razorpayKeyError))
+//                   }
+//                   className="mt-6 w-full py-4 bg-black text-white rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-[#F7A221] hover:text-black disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
+//                 >
+//                   {loading.confirm || loading.placeOrder || isPlacingOrder || paymentVerification.loading ? (
+//                     <><Loader2 size={16} className="animate-spin" /> 
+//                       {paymentVerification.loading ? "Verifying Payment..." : "Placing Order…"}
+//                     </>
+//                   ) : loading.quote ? (
+//                     <><Loader2 size={16} className="animate-spin" /> Getting Quote…</>
+//                   ) : (
+//                     <>Place Order — {paymentMethod === "online" && paymentPlan === "advance" ? fmt(advanceAmount) : fmt(quote?.amountPayable)}</>
+//                   )}
+//                 </button>
+
+//                 <p className="text-center text-[10px] text-gray-400 font-bold mt-3">
+//                   By placing this order you agree to our Terms & Conditions
+//                 </p>
+//               </div>
+//             )}
+//           </div>
+
+//           {/* ── Right Panel — Order Summary ── */}
+//           <div className="space-y-4">
+//             <div className="bg-white rounded-[32px] p-6 shadow-sm">
+//               <div className="flex items-center gap-2 mb-5">
+//                 <ShoppingBag size={16} className="text-gray-400" />
+//                 <h3 className="text-xs font-black uppercase tracking-widest text-gray-500">
+//                   Order Summary
+//                 </h3>
+//                 <span className="ml-auto text-xs font-black text-gray-400">
+//                   {cartCount} item{cartCount !== 1 ? "s" : ""}
+//                 </span>
+//               </div>
+
+//               {/* Cart items preview */}
+//               <div className="space-y-3 mb-5">
+//                 {cartItems.slice(0, 3).map((item, i) => {
+//                   const matchedVariant = item.product?.variants?.find(
+//                     (v) => String(v._id) === String(item.variantId)
+//                   ) ?? item.product?.variants?.[0];
+//                   const image = matchedVariant?.images?.[0]?.url || null;
+//                   const name = item.product?.title || item.product?.name || "Product";
+//                   const price = item.price?.sale ?? item.price?.base;
+
+//                   return (
+//                     <div key={i} className="flex items-center gap-3">
+//                       <div className="w-10 h-10 bg-gray-100 rounded-xl flex-shrink-0 overflow-hidden">
+//                         {image ? (
+//                           <img src={image} alt={name} className="w-full h-full object-cover" />
+//                         ) : (
+//                           <div className="w-full h-full flex items-center justify-center">
+//                             <Package size={14} className="text-gray-300" />
+//                           </div>
+//                         )}
+//                       </div>
+//                       <div className="flex-1 min-w-0">
+//                         <p className="text-xs font-bold text-gray-900 truncate">{name}</p>
+//                         <p className="text-[11px] text-gray-400 font-medium">
+//                           Qty: {item.quantity}
+//                         </p>
+//                       </div>
+//                       <p className="text-xs font-black text-gray-900">
+//                         {fmt(price * item.quantity)}
+//                       </p>
+//                     </div>
+//                   );
+//                 })}
+//                 {cartItems.length > 3 && (
+//                   <p className="text-[10px] text-gray-400 font-bold text-center">
+//                     +{cartItems.length - 3} more item{cartItems.length - 3 > 1 ? "s" : ""}
+//                   </p>
+//                 )}
+//               </div>
+
+//               <div className="border-t border-gray-100 pt-4">
+//                 {loading.quote && (
+//                   <div className="flex items-center justify-center gap-2 py-4 text-gray-400">
+//                     <Loader2 size={14} className="animate-spin" />
+//                     <span className="text-xs font-bold">Calculating totals…</span>
+//                   </div>
+//                 )}
+
+//                 {error.quote && !loading.quote && (
+//                   <div className="space-y-3">
+//                     <p className="text-xs text-red-500 font-bold">{error.quote.message}</p>
+//                     {selectedAddressId && (
+//                       <button
+//                         onClick={handleFetchQuote}
+//                         className="w-full py-3 text-xs font-black uppercase tracking-widest text-[#F7A221] hover:text-black border border-[#F7A221] rounded-2xl transition-colors cursor-pointer"
+//                       >
+//                         Retry Quote
+//                       </button>
+//                     )}
+//                   </div>
+//                 )}
+
+//                 {quote && !loading.quote && (
+//                   <PriceBreakdown
+//                     quote={quote}
+//                     itemCount={cartCount}
+//                     paymentMethod={paymentMethod}
+//                     paymentPlan={paymentPlan}
+//                     compact
+//                   />
+//                 )}
+
+//                 {!quote && !loading.quote && !error.quote && step === 1 && (
+//                   <div className="text-center py-2">
+//                     <p className="text-xs text-gray-400 font-medium">
+//                       Select an address to see delivery charges & final total
+//                     </p>
+//                   </div>
+//                 )}
+//               </div>
+//             </div>
+
+//             {quote?.deliveryEstimate && (
+//               <div className="bg-white rounded-[28px] p-5 shadow-sm flex items-center gap-3">
+//                 <Truck size={18} className="text-[#F7A221] flex-shrink-0" />
+//                 <div>
+//                   <p className="text-xs font-black text-gray-900">Estimated Delivery</p>
+//                   <p className="text-[11px] text-gray-500 font-medium mt-0.5">
+//                     {quote.deliveryEstimate}
+//                   </p>
+//                 </div>
+//               </div>
+//             )}
+//           </div>
+//         </div>
+//       </div>
+
+//       {/* Address form modal */}
+//       {showAddressModal && (
+//         <AddressFormModal
+//           initial={null}
+//           onSubmit={async () => {
+//             setShowAddressModal(false);
+//           }}
+//           onClose={() => setShowAddressModal(false)}
+//           isSaving={false}
+//           error={null}
+//         />
+//       )}
+
+//       {/* Razorpay Checkout Modal */}
+//       {showRazorpay && razorpayOrderData && razorpayKey && (
+//         <RazorpayCheckout
+//           razorpayOrder={razorpayOrderData}
+//           razorpayKey={razorpayKey}
+//           orderId={placedOrder?.order?.orderId}
+//           totalAmount={quote?.amountPayable}
+//           userEmail={user?.email}
+//           userName={user?.name}
+//           userPhone={selectedAddress?.phone}
+//           onSuccess={handleRazorpaySuccess}
+//           onFailure={handleRazorpayFailure}
+//           onClose={handleRazorpayClose}
+//           onRetry={handleRetryPayment}
+//         />
+//       )}
+
+//       {/* Payment verification loading */}
+//       {paymentVerification.loading && (
+//         <PaymentLoadingModal message="Verifying your payment..." />
+//       )}
+
+//       {/* Payment Error Modal */}
+//       {showPaymentErrorModal && (
+//         <PaymentErrorModal
+//           error={paymentError}
+//           onRetry={handleRetryPayment}
+//           onClose={() => {
+//             setShowPaymentErrorModal(false);
+//             setPaymentError(null);
+//           }}
+//         />
+//       )}
+//     </div>
+//   );
+// };
+
+// export default Checkout;
 
 
 // import React, { useEffect, useState } from "react";

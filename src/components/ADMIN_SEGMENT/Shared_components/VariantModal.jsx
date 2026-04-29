@@ -74,6 +74,16 @@ const VariantModal = ({
     return variantForm.wholesale && variantForm.price?.wholesaleBase && parseFloat(variantForm.price.wholesaleBase) > 0;
   };
 
+  const isWholesaleMoqUnmet = () => {
+    if (!variantForm.wholesale) return false;
+    if (variantForm.inventory?.trackInventory === false) return false;
+
+    const quantity = Number(variantForm.inventory?.quantity ?? 0);
+    const moq = Number(variantForm.minimumOrderQuantity ?? 1);
+
+    return Number.isFinite(quantity) && Number.isFinite(moq) && moq > quantity;
+  };
+
   const handleSave = () => {
     const ProductCode = (variantForm.ProductCode ?? '').toString().trim();
 
@@ -263,6 +273,11 @@ const VariantModal = ({
                   <label className="block text-xs font-medium text-gray-700 mb-1">Minimum Order Quantity (MOQ)</label>
                   <input type="number" min="1" value={variantForm.minimumOrderQuantity || 1} onChange={(e) => setVariantForm(prev => ({ ...prev, minimumOrderQuantity: parseInt(e.target.value) || 1 }))} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg" />
                 </div>
+                {isWholesaleMoqUnmet() && (
+                  <p className="text-xs font-semibold text-red-600 bg-red-50 border border-red-200 rounded-lg px-2 py-1">
+                    Wholesale warning: MOQ ({variantForm.minimumOrderQuantity ?? 1}) is greater than stock ({variantForm.inventory?.quantity ?? 0})
+                  </p>
+                )}
               </div>
             )}
           </div>
