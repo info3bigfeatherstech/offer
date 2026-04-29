@@ -667,10 +667,11 @@ useEffect(() => {
     const status = product.channelStatus?.ecomm || product.status;
     const colors = {
       active: "bg-green-100 text-green-700",
-      draft: "bg-yellow-100 text-yellow-700",
-      archived: "bg-red-100 text-red-700",
+      draft: "bg-gray-100 text-gray-600",
+      archived: "bg-gray-100 text-gray-600",
     };
-    return <span className={`px-2 py-1 rounded-full text-xs font-medium ${colors[status] || colors.draft}`}>{status}</span>;
+    const label = status === "active" ? "Active" : "Inactive";
+    return <span className={`px-2 py-1 rounded-full text-xs font-medium ${colors[status] || colors.draft}`}>{label}</span>;
   };
 
   const getWholesaleStatusBadge = (product) => {
@@ -808,21 +809,17 @@ useEffect(() => {
                 <button
                   onClick={() => handleBulkStatusUpdate("draft", "ecomm")}
                   disabled={bulkLoading}
-                  className="flex items-center gap-2 px-3 py-2 bg-yellow-50 text-yellow-700 rounded-xl text-sm font-medium hover:bg-yellow-100 transition-colors disabled:opacity-50 cursor-pointer"
+                  className="flex items-center gap-2 px-3 py-2 bg-gray-50 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-100 transition-colors disabled:opacity-50 cursor-pointer"
                 >
-                  <span className="w-2 h-2 rounded-full bg-yellow-500 flex-shrink-0" />
-                  Draft
+                  <span className="w-2 h-2 rounded-full bg-gray-400 flex-shrink-0" />
+                  Inactive
                 </button>
-                <button
-                  onClick={() => handleBulkStatusUpdate("archived", "ecomm")}
-                  disabled={bulkLoading}
-                  className="flex items-center gap-2 px-3 py-2 bg-red-50 text-red-700 rounded-xl text-sm font-medium hover:bg-red-100 transition-colors disabled:opacity-50 cursor-pointer"
-                >
+                {/* <button  onClick={() => handleBulkStatusUpdate("archived", "ecomm")}   disabled={bulkLoading}       className="flex items-center gap-2 px-3 py-2 bg-red-50 text-red-700 rounded-xl text-sm font-medium hover:bg-red-100 transition-colors disabled:opacity-50 cursor-pointer"   >
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
                   </svg>
                   Archive
-                </button>
+                </button> */}
               </div>
             </div>
 
@@ -852,7 +849,7 @@ useEffect(() => {
                   className="flex items-center gap-2 px-3 py-2 bg-gray-50 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-100 transition-colors disabled:opacity-50 cursor-pointer"
                 >
                   <span className="w-2 h-2 rounded-full bg-gray-400 flex-shrink-0" />
-                  Draft
+                  Inactive
                 </button>
               </div>
             </div>
@@ -880,7 +877,7 @@ useEffect(() => {
               className="px-4 cursor-pointer py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500"
             >
               <option value="all">All Status (Ecom)</option>
-              <option value="draft">Draft</option>
+              <option value="draft">Inactive</option>
               <option value="active">Active</option>
               <option value="archived">Archived</option>
             </select>

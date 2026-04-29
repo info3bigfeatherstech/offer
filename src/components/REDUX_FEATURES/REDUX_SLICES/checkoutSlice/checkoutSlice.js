@@ -11,12 +11,12 @@ import axiosInstance from "../../../../SERVICES/axiosInstance";
  */
 export const fetchCheckoutQuote = createAsyncThunk(
   "checkout/fetchQuote",
-  async ({ addressId, couponCode, paymentMethodHint = "cod", demoMockShipping = false }, { rejectWithValue }) => {
+  async ({ addressId, couponCode, paymentMethodHint, demoMockShipping = false }, { rejectWithValue }) => {
     try {
       const res = await axiosInstance.post("/checkout/quote", {
         addressId,
         couponCode: couponCode || undefined,
-        paymentMethodHint,
+        paymentMethodHint: paymentMethodHint || undefined,
         demoMockShipping,
       });
       if (!res.data.success) throw new Error(res.data.message || "Failed to get quote");
@@ -37,7 +37,7 @@ export const fetchCheckoutQuote = createAsyncThunk(
  */
 export const confirmCheckoutQuote = createAsyncThunk(
   "checkout/confirmQuote",
-  async ({ quoteId, paymentMethod = "cod", paymentPlan = "full" }, { rejectWithValue }) => {
+  async ({ quoteId, paymentMethod, paymentPlan = "full" }, { rejectWithValue }) => {
     try {
       const res = await axiosInstance.post("/checkout/confirm", {
         quoteId,
@@ -50,7 +50,7 @@ export const confirmCheckoutQuote = createAsyncThunk(
       return rejectWithValue({
         message: err.response?.data?.message || err.message || "Failed to confirm quote",
         code: err.response?.data?.code,
-        latest: err.response?.data?.latest,
+        details: err.response?.data?.details,
         status: err.response?.status,
       });
     }
@@ -64,21 +64,26 @@ export const confirmCheckoutQuote = createAsyncThunk(
  */
 export const placeOrder = createAsyncThunk(
   "checkout/placeOrder",
-  async ({ addressId, paymentMethod = "cod", quoteId, couponCode, onlinePaymentMode = "full" }, { rejectWithValue }) => {
+  async ({ addressId, paymentMethod, quoteId, couponCode, onlinePaymentMode = "full", idempotencyKey }, { rejectWithValue }) => {
     try {
+      const requestConfig = idempotencyKey
+        ? { headers: { "Idempotency-Key": idempotencyKey } }
+        : undefined;
+
       const res = await axiosInstance.post("/orders/items", {
         addressId,
         paymentMethod,
         quoteId,
         couponCode: couponCode || undefined,
         onlinePaymentMode,
-      });
+      }, requestConfig);
       if (!res.data.success) throw new Error(res.data.message || "Failed to place order");
       return res.data;
     } catch (err) {
       return rejectWithValue({
         message: err.response?.data?.message || err.message || "Failed to place order",
         code: err.response?.data?.code,
+        details: err.response?.data?.details,
         status: err.response?.status,
       });
     }
@@ -124,6 +129,8 @@ export const verifyRazorpayPayment = createAsyncThunk(
     } catch (err) {
       return rejectWithValue({
         message: err.response?.data?.message || err.message || "Payment verification failed",
+        code: err.response?.data?.code,
+        details: err.response?.data?.details,
         status: err.response?.status,
       });
     }
@@ -190,7 +197,7 @@ const initialState = {
   selectedAddressId: null,
 
   // Payment method and plan
-  paymentMethod: "cod",
+  paymentMethod: null,
   paymentPlan: "full", // "full" or "advance"
 
   // Coupon
@@ -317,14 +324,15 @@ const checkoutSlice = createSlice({
       .addCase(confirmCheckoutQuote.rejected, (state, action) => {
         state.loading.confirm = false;
         state.error.confirm = action.payload || { message: "Failed to confirm quote" };
-        if (action.payload?.latest) {
-          state.quote = { ...state.quote, ...action.payload.latest };
+        const latest = action.payload?.details?.latest;
+        if (latest) {
+          state.quote = { ...state.quote, ...latest };
           state.error.confirm = {
             ...action.payload,
             message: "Prices updated — please review and confirm again",
           };
         }
-        if (action.payload?.message?.toLowerCase().includes("expired")) {
+        if (action.payload?.code === "QUOTE_EXPIRED" || action.payload?.details?.reason === "quote_expired") {
           state.quote = null;
           state.quoteId = null;
           state.quoteExpiresAt = null;
