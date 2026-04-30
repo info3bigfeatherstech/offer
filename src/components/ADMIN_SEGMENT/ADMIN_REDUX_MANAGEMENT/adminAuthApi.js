@@ -1,10 +1,11 @@
 // adminAuthApi.js — replace fetchBaseQuery entirely
 
 import { createApi }  from '@reduxjs/toolkit/query/react';
-import axiosInstance  from '../../../SERVICES/axiosInstance'; // your existing instance
+import axiosInstance, { ADMIN_ACCESS_TOKEN_KEY, AUTH_CONTEXT_ADMIN } from '../../../SERVICES/axiosInstance'; // your existing instance
 import { ROLES }      from '../roles';
 
 const ADMIN_ROLES = Object.values(ROLES);
+const ADMIN_ECOMM_PORTAL = 'admin-ecomm';
 
 // ✅ Wrap axiosInstance so RTK Query can use it
 // This means ALL admin API calls now go through your refresh interceptor
@@ -15,6 +16,7 @@ const axiosBaseQuery = () => async ({ url, method = 'GET', body, params }) => {
             method,
             data: body,
             params,
+            authContext: AUTH_CONTEXT_ADMIN,
         });
         return { data: result.data };
     } catch (axiosError) {
@@ -49,23 +51,30 @@ export const adminAuthApi = createApi({
             query: (credentials) => ({
                 url:    '/auth/login',
                 method: 'POST',
-                body:   credentials,
+                body:   {
+                    ...credentials,
+                    portal: ADMIN_ECOMM_PORTAL,
+                },
             }),
             transformResponse: (response) => {
                 const { accessToken, user } = response;
                 if (!user?.role || !ADMIN_ROLES.includes(user.role)) {
                     throw new Error('Access denied. Insufficient permissions.');
                 }
-                if (accessToken) localStorage.setItem('accessToken', accessToken);
+                if (accessToken) localStorage.setItem(ADMIN_ACCESS_TOKEN_KEY, accessToken);
                 return user;
             },
             invalidatesTags: ['AdminUser'],
         }),
 
         adminLogout: builder.mutation({
-            query: () => ({ url: '/auth/logout', method: 'POST' }),
+            query: () => ({
+                url: '/auth/logout',
+                method: 'POST',
+                body: { portal: ADMIN_ECOMM_PORTAL },
+            }),
             transformResponse: (response) => {
-                localStorage.removeItem('accessToken');
+                localStorage.removeItem(ADMIN_ACCESS_TOKEN_KEY);
                 return response;
             },
             invalidatesTags: ['AdminUser'],

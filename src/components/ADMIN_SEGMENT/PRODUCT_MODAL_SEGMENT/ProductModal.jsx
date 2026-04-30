@@ -21,6 +21,47 @@ const getDiscountPercentage = (base, sale) => {
   return Math.round(((Number(base) - Number(sale)) / Number(base)) * 100);
 };
 
+const PRODUCT_CODE_REGEX = /^([A-Z0-9]+)-(\d{2})$/;
+
+const validateProductCodeSeries = (rawCodes, contextLabel = "variants") => {
+  const normalized = (rawCodes || []).map((c) => String(c || "").trim().toUpperCase()).filter(Boolean);
+  if (!normalized.length) {
+    throw new Error(`At least one ProductCode is required for ${contextLabel}`);
+  }
+
+  const parsed = normalized.map((code, idx) => {
+    const match = code.match(PRODUCT_CODE_REGEX);
+    if (!match) {
+      throw new Error(`${contextLabel}[${idx + 1}] ProductCode must be in BASE-XX format (e.g., 3897-01)`);
+    }
+    return { code, base: match[1], sequence: Number(match[2]) };
+  });
+
+  const base = parsed[0].base;
+  const seenCodes = new Set();
+  const seenSeq = new Set();
+
+  for (const entry of parsed) {
+    if (entry.base !== base) {
+      throw new Error(`All ProductCodes must share same base. Expected ${base}-XX, got ${entry.code}`);
+    }
+    if (entry.sequence < 1) {
+      throw new Error(`ProductCode sequence must start from 01. Invalid code: ${entry.code}`);
+    }
+    if (seenCodes.has(entry.code)) {
+      throw new Error(`Duplicate ProductCode found: ${entry.code}`);
+    }
+    seenCodes.add(entry.code);
+    seenSeq.add(entry.sequence);
+  }
+
+  for (let expected = 1; expected <= parsed.length; expected++) {
+    if (!seenSeq.has(expected)) {
+      throw new Error(`ProductCode sequence must be continuous: missing ${base}-${String(expected).padStart(2, "0")}`);
+    }
+  }
+};
+
 const emptyForm = () => ({
   name: "", title: "", description: "", brand: "Generic", category: "",
   ProductCode: "", price: { base: "", sale: "" },
@@ -126,6 +167,12 @@ const ProductModal = ({ onClose, brands, setBrands }) => {
     const allBarcodes = [bc0, ...formData.variants.map((v) => String(v.ProductCode).trim())];
     if (new Set(allBarcodes).size !== allBarcodes.length) {
       alert("Duplicate barcodes found — each variant must have a unique ProductCode"); return;
+    }
+    try {
+      validateProductCodeSeries(allBarcodes, "create product variants");
+    } catch (seriesError) {
+      alert(seriesError.message);
+      return;
     }
     dispatch(createProduct(formData));
   };
