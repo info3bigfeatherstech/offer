@@ -1,5 +1,6 @@
 import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
 import axiosInstance from "../../../SERVICES/axiosInstance";
+import { USER_ACCESS_TOKEN_KEY } from "../../../SERVICES/axiosInstance";
 
 // ─────────────────────────────────────────────────────────────
 // THUNKS
@@ -40,7 +41,7 @@ export const verifyOTP = createAsyncThunk(
         otp,
       });
       if (res.data.accessToken) {
-        localStorage.setItem("accessToken", res.data.accessToken);
+        localStorage.setItem(USER_ACCESS_TOKEN_KEY, res.data.accessToken);
       }
       return res.data; // { success, accessToken, user }
     } catch (err) {
@@ -62,9 +63,10 @@ export const loginUser = createAsyncThunk(
       const res = await axiosInstance.post("/auth/login", {
         identifier,
         password,
+        portal: "ecomm",
       });
       if (res.data.accessToken) {
-        localStorage.setItem("accessToken", res.data.accessToken);
+        localStorage.setItem(USER_ACCESS_TOKEN_KEY, res.data.accessToken);
       }
       return res.data; // { success, accessToken, user }
     } catch (err) {
@@ -82,7 +84,7 @@ export const googleLogin = createAsyncThunk(
     try {
       const res = await axiosInstance.post("/auth/google", { idToken });
       if (res.data.accessToken) {
-        localStorage.setItem("accessToken", res.data.accessToken);
+        localStorage.setItem(USER_ACCESS_TOKEN_KEY, res.data.accessToken);
       }
       return res.data;
     } catch (err) {
@@ -98,11 +100,11 @@ export const logoutUser = createAsyncThunk(
   "auth/logout",
   async (_, { rejectWithValue }) => {
     try {
-      await axiosInstance.post("/auth/logout");
-      localStorage.removeItem("accessToken");
+      await axiosInstance.post("/auth/logout", { portal: "ecomm" });
+      localStorage.removeItem(USER_ACCESS_TOKEN_KEY);
       return true;
     } catch (err) {
-      localStorage.removeItem("accessToken");
+      localStorage.removeItem(USER_ACCESS_TOKEN_KEY);
       return rejectWithValue(
         err.response?.data || { message: "Logout failed" }
       );
@@ -193,13 +195,13 @@ export const refreshToken = createAsyncThunk(
   "auth/refresh",
   async (_, { rejectWithValue }) => {
     try {
-      const res = await axiosInstance.post("/auth/refresh");
+      const res = await axiosInstance.post("/auth/refresh", { portal: "ecomm" });
       if (res.data.accessToken) {
-        localStorage.setItem("accessToken", res.data.accessToken);
+        localStorage.setItem(USER_ACCESS_TOKEN_KEY, res.data.accessToken);
       }
       return res.data;
     } catch (err) {
-      localStorage.removeItem("accessToken");
+      localStorage.removeItem(USER_ACCESS_TOKEN_KEY);
       return rejectWithValue(
         err.response?.data || { message: "Session expired. Please login again." }
       );
@@ -231,8 +233,8 @@ export const changePassword = createAsyncThunk(
 
 const initialState = {
   user: null,
-  accessToken: localStorage.getItem("accessToken") || null,
-  isLoggedIn: !!localStorage.getItem("accessToken"),
+  accessToken: localStorage.getItem(USER_ACCESS_TOKEN_KEY) || null,
+  isLoggedIn: !!localStorage.getItem(USER_ACCESS_TOKEN_KEY),
   loading: false,
   error: null,
   successMessage: null,
@@ -273,7 +275,7 @@ const authSlice = createSlice({
       state.successMessage = null;
       state.pendingPhone = null;
       state.forgotPasswordIdentifier = null;
-      localStorage.removeItem("accessToken");
+      localStorage.removeItem(USER_ACCESS_TOKEN_KEY);
     },
   },
   extraReducers: (builder) => {
@@ -285,6 +287,19 @@ const authSlice = createSlice({
     };
     const setRejected = (state, action) => {
       state.loading = false;
+      const code = action.payload?.code;
+      if (code === "PORTAL_ACCESS_DENIED") {
+        state.error = "This account is not allowed on this app. Please use the correct login portal.";
+        return;
+      }
+      if (code === "PORTAL_REQUIRED_FOR_PRIVILEGED_ACCOUNT") {
+        state.error = "Admin or staff accounts must login from the admin portal.";
+        return;
+      }
+      if (code === "INVALID_PORTAL") {
+        state.error = "Login configuration is invalid. Please refresh and try again.";
+        return;
+      }
       state.error = action.payload?.message || "Something went wrong";
     };
 

@@ -21,11 +21,12 @@ import ShopByPrice from "./User_Side_Web_Interface/ShopByPriceSegment/ShopByPric
 import AdminLogin        from "./components/ADMIN_SEGMENT/ADMIN_LOGIN_SEGMENT/AdminLogin";
 import AdminUnauthorized from "./components/ADMIN_SEGMENT/ADMIN_LOGIN_SEGMENT/AdminUnauthorized";
 import AdminPrivateRoute from "./components/ADMIN_SEGMENT/ADMIN_LOGIN_SEGMENT/AdminPrivateRoute";
-import adminAuthReducer, { adminForceLogout } from "./components/ADMIN_SEGMENT/ADMIN_REDUX_MANAGEMENT/adminAuthSlice";
+import { adminForceLogout } from "./components/ADMIN_SEGMENT/ADMIN_REDUX_MANAGEMENT/adminAuthSlice";
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { logoutUser, fetchMe } from "./components/REDUX_FEATURES/REDUX_SLICES/authSlice";
+import { logoutUser, fetchMe, forceLogout } from "./components/REDUX_FEATURES/REDUX_SLICES/authSlice";
+import { USER_ACCESS_TOKEN_KEY } from "./SERVICES/axiosInstance";
 
 // ── These two are fine at app-level — they power Navbar badges ───────────────
 import useWishlistInit from "./components/HOOKS/useWishlistInit";
@@ -72,7 +73,7 @@ const AppContent = () => {
     // No separate profile fetch needed in UserDashboard
    // App.jsx — AppContent component
             useEffect(() => {
-                const token = localStorage.getItem("accessToken");
+                const token = localStorage.getItem(USER_ACCESS_TOKEN_KEY);
                 // ✅ Don't run user fetchMe on admin routes — admin has its own auth system
                 if (token && !isAdminRoute) {
                     dispatch(fetchMe());
@@ -92,13 +93,22 @@ const AppContent = () => {
     // }, [dispatch]);
 
     useEffect(() => {
-    const handleForceLogout = () => {
-        dispatch(logoutUser());        // your existing user auth action
-        dispatch(adminForceLogout());  // admin auth slice
-    };
-    window.addEventListener("auth:logout", handleForceLogout);
-    return () => window.removeEventListener("auth:logout", handleForceLogout);
-}, [dispatch]);
+        const handleUserForceLogout = () => {
+            dispatch(forceLogout());
+        };
+
+        const handleAdminForceLogout = () => {
+            dispatch(adminForceLogout());
+        };
+
+        window.addEventListener("auth:logout:user", handleUserForceLogout);
+        window.addEventListener("auth:logout:admin", handleAdminForceLogout);
+
+        return () => {
+            window.removeEventListener("auth:logout:user", handleUserForceLogout);
+            window.removeEventListener("auth:logout:admin", handleAdminForceLogout);
+        };
+    }, [dispatch]);
 
     // ── Show auth popup once per session (not on admin routes) ───────────────
     useEffect(() => {
