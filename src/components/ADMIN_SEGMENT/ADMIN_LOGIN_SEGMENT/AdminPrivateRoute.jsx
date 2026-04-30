@@ -3,6 +3,7 @@ import { useSelector } from "react-redux";
 import { useGetAdminMeQuery } from "../ADMIN_REDUX_MANAGEMENT/adminAuthApi";
 import { selectAdminStatus, selectAdminUser } from "../ADMIN_REDUX_MANAGEMENT/adminAuthSlice";
 import { ROLES } from "../roles";
+import { ADMIN_ACCESS_TOKEN_KEY } from "../../../SERVICES/axiosInstance";
 
 const VALID_ADMIN_ROLES = Object.values(ROLES);
 
@@ -40,7 +41,7 @@ const AdminPrivateRoute = ({ children }) => {
     const status   = useSelector(selectAdminStatus);
     const user     = useSelector(selectAdminUser);
 
-    const token   = localStorage.getItem("accessToken");
+    const token   = localStorage.getItem(ADMIN_ACCESS_TOKEN_KEY);
     const payload = decodeToken(token);
 
     // ── Fire /auth/me ONLY when:

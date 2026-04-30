@@ -45,6 +45,47 @@ const normalizeProductCode = (rawCode, label = "ProductCode") => {
   return code;
 };
 
+const PRODUCT_CODE_REGEX = /^([A-Z0-9]+)-(\d{2})$/;
+
+const validateProductCodeSeries = (codes, contextLabel = "variants") => {
+  const normalized = (codes || []).map((c) => String(c || "").trim().toUpperCase()).filter(Boolean);
+  if (!normalized.length) {
+    throw new Error(`At least one ProductCode is required for ${contextLabel}`);
+  }
+
+  const parsed = normalized.map((code, idx) => {
+    const match = code.match(PRODUCT_CODE_REGEX);
+    if (!match) {
+      throw new Error(`${contextLabel}[${idx + 1}] ProductCode must be in BASE-XX format (e.g., 3897-01)`);
+    }
+    return { code, base: match[1], sequence: Number(match[2]) };
+  });
+
+  const base = parsed[0].base;
+  const seenCodes = new Set();
+  const seenSequences = new Set();
+
+  for (const item of parsed) {
+    if (item.base !== base) {
+      throw new Error(`All ProductCodes must share same base. Expected ${base}-XX, got ${item.code}`);
+    }
+    if (item.sequence < 1) {
+      throw new Error(`ProductCode sequence must start from 01. Invalid code: ${item.code}`);
+    }
+    if (seenCodes.has(item.code)) {
+      throw new Error(`Duplicate ProductCode found: ${item.code}`);
+    }
+    seenCodes.add(item.code);
+    seenSequences.add(item.sequence);
+  }
+
+  for (let expected = 1; expected <= parsed.length; expected++) {
+    if (!seenSequences.has(expected)) {
+      throw new Error(`ProductCode sequence must be continuous: missing ${base}-${String(expected).padStart(2, "0")}`);
+    }
+  }
+};
+
 export const createProduct = createAsyncThunk(
   "adminProductCreate/createProduct",
   async (productData, { rejectWithValue }) => {
@@ -92,6 +133,7 @@ export const createProduct = createAsyncThunk(
       }
 
       const extraVariants = [];
+      const normalizedVariantCodes = [];
       for (let i = 0; i < (productData.variants || []).length; i++) {
         const v = productData.variants[i];
         let vPrice;
@@ -118,6 +160,7 @@ export const createProduct = createAsyncThunk(
         } catch (codeErr) {
           return rejectWithValue(codeErr.message);
         }
+        normalizedVariantCodes.push(normalizedVariantProductCode);
 
         extraVariants.push({
           productCode: normalizedVariantProductCode,
@@ -142,6 +185,15 @@ export const createProduct = createAsyncThunk(
         normalizedMainProductCode = normalizeProductCode(productData.ProductCode, "Main ProductCode");
       } catch (codeErr) {
         return rejectWithValue(codeErr.message);
+      }
+
+      try {
+        validateProductCodeSeries(
+          [normalizedMainProductCode, ...normalizedVariantCodes],
+          "create product variants"
+        );
+      } catch (seriesErr) {
+        return rejectWithValue(seriesErr.message);
       }
 
       const primaryVariant = {

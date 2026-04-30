@@ -1,6 +1,7 @@
 import { createSlice } from "@reduxjs/toolkit";
 import { adminAuthApi } from "./adminAuthApi";
 import { ROLES } from "../roles";
+import { ADMIN_ACCESS_TOKEN_KEY } from "../../../SERVICES/axiosInstance";
 
 const VALID_ROLES = Object.values(ROLES);
 
@@ -20,7 +21,7 @@ const decodeJWT = (token) => {
 // "idle"            → token exists but can't decode yet, need /auth/me
 // "unauthenticated" → NO token at all, show login form immediately, no spinner
 const deriveInitialState = () => {
-  const token = localStorage.getItem("accessToken");
+  const token = localStorage.getItem(ADMIN_ACCESS_TOKEN_KEY);
 
   // No token at all → unauthenticated immediately, never idle
   if (!token) {
@@ -47,7 +48,7 @@ const adminAuthSlice = createSlice({
     adminForceLogout: (state) => {
       state.user = null;
       state.status = "unauthenticated";
-      localStorage.removeItem("accessToken");
+      localStorage.removeItem(ADMIN_ACCESS_TOKEN_KEY);
     },
   },
 
@@ -96,7 +97,7 @@ const adminAuthSlice = createSlice({
           } else {
             state.user = null;
             state.status = "unauthenticated";
-            localStorage.removeItem("accessToken");
+            localStorage.removeItem(ADMIN_ACCESS_TOKEN_KEY);
           }
         }
       )
@@ -105,7 +106,7 @@ const adminAuthSlice = createSlice({
         (state) => {
           state.user = null;
           state.status = "unauthenticated";
-          localStorage.removeItem("accessToken");
+          localStorage.removeItem(ADMIN_ACCESS_TOKEN_KEY);
         }
       );
 
@@ -123,7 +124,7 @@ const adminAuthSlice = createSlice({
         (state) => {
           state.user = null;
           state.status = "unauthenticated";
-          localStorage.removeItem("accessToken");
+          localStorage.removeItem(ADMIN_ACCESS_TOKEN_KEY);
         }
       );
   },
