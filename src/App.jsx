@@ -33,8 +33,8 @@ import useWishlistInit from "./components/HOOKS/useWishlistInit";
 import useCartInit from "./components/HOOKS/useCartInit";
 import UserTab from "./components/ADMIN_SEGMENT/ADMIN_TABS/USER/UserTab";
 import Checkout from "./User_Side_Web_Interface/CHECKOUT/Checkout";
-import TagProducts from "./User_Side_Web_Interface/User_Dash_Segment/UserSubPages/TagProducts";
 import ContactUs from "./components/Common/Contact";
+import TagProducts from "./User_Side_Web_Interface/User_Dash_Segment/UserSubPages/TagProducts";
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ── Optional: protect /account routes ────────────────────────────────────────
@@ -218,7 +218,7 @@ const AppContent = () => {
                 <Route path="/on-sale"       element={<TagProducts tag="on-sale" />} />
                 <Route path="/today-arrival" element={<TagProducts tag="today-arrival" />} />
 
-                <Route path="/checkout" element={<Checkout />} />
+                    <Route path="/checkout" element={<Checkout />} />
 
                 {/* ── 404 fallback ───────────────────────────────────────── */}
                 <Route path="*" element={<Navigate to="/" replace />} />

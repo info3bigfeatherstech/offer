@@ -242,6 +242,10 @@ const RazorpayCheckout = forwardRef(({
         try { razorpayInstance.current.close(); } catch (e) { /* ignore */ }
       }
       razorpayInstance.current = null;
+        const rzpBanner = document.querySelector(".razorpay-container");
+  if (rzpBanner) rzpBanner.remove();
+  const rzpBackdrop = document.querySelector(".razorpay-backdrop");
+  if (rzpBackdrop) rzpBackdrop.remove();
     };
   }, []); // Run once — options captured via refs
 

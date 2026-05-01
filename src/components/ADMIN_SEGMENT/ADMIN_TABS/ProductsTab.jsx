@@ -1,7 +1,7 @@
 
 // ADMIN_TABS/ProductsTab.jsx
 
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useMemo,useCallback } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { toast } from "react-toastify";
 
@@ -286,6 +286,7 @@ const handleBulkFlagUpdate = async (flagType) => {
     toast.error("No products selected");
     return;
   }
+    const slugs = Array.from(selectedSlugs);
 
   if (flagLoading) return;
 
@@ -315,14 +316,14 @@ const handleBulkFlagUpdate = async (flagType) => {
   // optimistic UI
   setValue(newValue);
   dispatch(optimisticBulkTagUpdate({
-  slugs: Array.from(selectedSlugs),
+  slugs,
   flagType,
   value: newValue
 }));
 
   try {
     const res = await axiosInstance.put(`/admin/products/updateFlags`, {
-      slugs: Array.from(selectedSlugs),
+      slugs,
       flagType,
       value: newValue,
     });
@@ -337,8 +338,9 @@ const handleBulkFlagUpdate = async (flagType) => {
 }, 400);
 
   } catch (err) {
+    setValue(currentValue);
     dispatch(optimisticBulkTagUpdate({
-  slugs: Array.from(selectedSlugs),
+  slugs,
   flagType,
   value: !newValue
 }));
@@ -360,6 +362,14 @@ const handleBulkFlagUpdate = async (flagType) => {
     loading: productsLoading,
     error: productsError,
   } = useSelector((s) => s.adminGetProducts);
+ const normalizedProducts = useMemo(
+  () =>
+    products.map((p) => ({
+      ...p,
+      tags: p.tags || [],
+    })),
+  [products]
+);
 
   const {
     products: lowStockProducts,
@@ -418,7 +428,7 @@ useEffect(() => {
     return;
   }
 
-  const selected = products.filter(p =>
+  const selected = normalizedProducts.filter(p =>
     selectedSlugs.has(p.slug)
   );
 
@@ -440,7 +450,7 @@ useEffect(() => {
   setOnSale(saleCount === total);
   setSaleIndeterminate(saleCount > 0 && saleCount < total);
 
-}, [selectedSlugs, products]);
+}, [selectedSlugs, normalizedProducts]);
 
   useEffect(() => {
     setSelectedSlugs(new Set());
@@ -465,10 +475,10 @@ useEffect(() => {
     }
   }, [deleteSuccess, dispatch]);
 
-  const refreshProducts = () => {
-    dispatch(fetchProducts({ page: currentPage, limit: 15 }));
-    dispatch(fetchLowStockProducts({ page: 1, limit: 1 }));
-  };
+ const refreshProducts = useCallback(() => {
+  dispatch(fetchProducts({ page: currentPage, limit: 15 }));
+  dispatch(fetchLowStockProducts({ page: 1, limit: 1 }));
+}, [dispatch, currentPage]);
 
   const handlePageChange = (newPage) => {
     if (newPage >= 1 && newPage <= totalPages) {
@@ -601,7 +611,7 @@ useEffect(() => {
   };
 
   const activeProducts = realActiveCount;
-  const featuredProducts = products.filter((p) => p.isFeatured).length;
+  const featuredProducts = normalizedProducts.filter((p) => p.isFeatured).length;
   const lowStockCount = realLowStockCount;
 
   const getDateFilterRange = useCallback(() => {
@@ -620,11 +630,12 @@ useEffect(() => {
     return { start, end, dateField };
   }, [dateFilter]);
 
-  const filteredProducts = products.filter((product) => {
-    const matchesSearch =
-      product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      product.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (product.brand && product.brand.toLowerCase().includes(searchTerm.toLowerCase()));
+  const filteredProducts = useMemo(() => {
+    return normalizedProducts.filter((product) => {
+      const matchesSearch =
+        product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        product.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (product.brand && product.brand.toLowerCase().includes(searchTerm.toLowerCase()));
 
     const matchesStatus = filterStatus === "all" || product.status === filterStatus;
     const matchesCategory = filterCategory === "all" || getCategoryId(product.category) === filterCategory;
@@ -644,6 +655,8 @@ useEffect(() => {
 
     return matchesSearch && matchesStatus && matchesCategory && matchesLowStock && matchesDate;
   });
+}, [normalizedProducts, searchTerm, filterStatus, filterCategory, showLowStockOnly, lowStockProducts,
+  getDateFilterRange])
 
   const allOnPageSelected = filteredProducts.length > 0 && filteredProducts.every((p) => selectedSlugs.has(p.slug));
   const someSelected = selectedSlugs.size > 0;
@@ -785,6 +798,22 @@ useEffect(() => {
                 Clear selection
               </button>
             </div>
+            <div className="flex items-center gap-3">
+  <FlagToggle
+    label="Today Arrival"
+    checked={todayArrival}
+    indeterminate={todayIndeterminate}
+    loading={flagLoading}
+    onChange={() => handleBulkFlagUpdate("today-arrival")}
+  />
+  <FlagToggle
+    label="On Sale"
+    checked={onSale}
+    indeterminate={saleIndeterminate}
+    loading={flagLoading}
+    onChange={() => handleBulkFlagUpdate("on-sale")}
+  />
+</div>
 
             {/* SET AS ECOM BUTTON */}
             <div className="relative group">
@@ -960,9 +989,7 @@ useEffect(() => {
             </thead>
             <tbody className="divide-y divide-gray-200">
               {filteredProducts.map((product) => {
-                const isChecked = selectedSlugs.has(product.slug);
-                console.log("checked",isChecked);
-                
+                const isChecked = selectedSlugs.has(product.slug)                
                 const mainVariant = product.variants?.[0] || {};
                 const basePrice = mainVariant.price?.base || 0;
                 const salePrice = mainVariant.price?.sale;
@@ -974,6 +1001,7 @@ useEffect(() => {
 
                 return (
                   <tr key={product._id} className={`hover:bg-gray-50 transition-colors group ${isChecked ? "bg-blue-50 hover:bg-blue-50" : ""}`}>
+                    { console.log(product.name, product.tags)}
                     <td className="px-4 py-4">
                       <input
                         type="checkbox"

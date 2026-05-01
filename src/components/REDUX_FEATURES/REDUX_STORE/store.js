@@ -23,6 +23,7 @@ import userAddressReducer from '../REDUX_SLICES/Useraddressslice';
 import { searchApi } from '../REDUX_SLICES/searchApi';
 import checkoutReducer from '../REDUX_SLICES/checkoutSlice/checkoutSlice';
 import orderReducer from '../REDUX_SLICES/orderSlice/orderSlice';
+import productTagsReducer from "../REDUX_SLICES/productTagsSlice"
 const store = configureStore({
   reducer: {
     auth: authReducer,   //user authentication reducer
@@ -39,6 +40,7 @@ const store = configureStore({
     [seoAnalyticsApi.reducerPath]: seoAnalyticsApi.reducer,
     seoUi: seoUiReducer,
     adminOrdersUi: adminOrdersUiReducer,
+        productTags: productTagsReducer, // ← yeh hona chahiye
     [adminOrdersApi.reducerPath]: adminOrdersApi.reducer,
     [wholesalerApi.reducerPath]: wholesalerApi.reducer,
 

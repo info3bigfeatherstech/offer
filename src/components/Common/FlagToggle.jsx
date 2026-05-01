@@ -1,62 +1,38 @@
-const FlagToggle = ({
-  label,
-  value,
-  indeterminate,
-  loading,
-  onClick,
-}) => {
-  return (
-    <div className="flex items-center gap-3">
-      
-      {/* Label */}
-      <span className="text-sm font-semibold text-gray-700">
-        {label}
-      </span>
+// Common/FlagToggle.jsx
 
-      {/* Toggle */}
-      <div
-        onClick={!loading ? onClick : undefined}
-        className={`relative w-14 h-7 rounded-full transition-all duration-300
-          ${loading ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}
-          ${
-            indeterminate
-              ? "bg-yellow-400"
-              : value
-              ? "bg-[#468432]"
-              : "bg-gray-300"
-          }
-        `}
-      >
-        {/* Knob */}
-        <div
-          className={`absolute top-1 left-1 w-5 h-5 bg-white rounded-full shadow-md
-            flex items-center justify-center
-            transition-all duration-300
-            ${
-              indeterminate
-                ? "translate-x-[14px]"   // center
-                : value
-                ? "translate-x-[28px]"   // right
-                : "translate-x-0"        // left
-            }
-          `}
-        >
-          {/* Icons */}
-          {indeterminate ? (
-            <div className="w-2 h-2 bg-yellow-700 rounded-full" />
-          ) : value ? (
-            <svg
-              className="w-3 h-3 text-green-700"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path strokeWidth={3} d="M5 13l4 4L19 7" />
-            </svg>
-          ) : null}
-        </div>
-      </div>
-    </div>
+import React, { useRef, useEffect } from "react";
+
+const FlagToggle = ({ label, checked, indeterminate, loading, onChange }) => {
+  const checkboxRef = useRef(null);
+
+  useEffect(() => {
+    if (checkboxRef.current) {
+      checkboxRef.current.indeterminate = indeterminate;
+    }
+  }, [indeterminate]);
+
+  return (
+    <label className={`flex items-center gap-2 px-3 py-2 rounded-xl border cursor-pointer transition-all select-none ${
+      loading ? "opacity-50 cursor-not-allowed" : "hover:bg-gray-50"
+    } ${
+      checked ? "bg-orange-50 border-orange-300 text-orange-700" :
+      indeterminate ? "bg-yellow-50 border-yellow-300 text-yellow-700" :
+      "bg-white border-gray-200 text-gray-600"
+    }`}>
+      <input
+        ref={checkboxRef}
+        type="checkbox"
+        checked={checked}
+        onChange={onChange}
+        disabled={loading}
+        className="w-4 h-4 rounded border-gray-300 text-orange-500 cursor-pointer accent-orange-500"
+      />
+      <span className="text-sm font-medium whitespace-nowrap">{label}</span>
+      {loading && (
+        <div className="w-3 h-3 border border-orange-400 border-t-transparent rounded-full animate-spin" />
+      )}
+    </label>
   );
 };
+
 export default FlagToggle;

@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 
-import ProductCard from "../../Product_segment/ProductCard"
+import ProductCard from "../../Product_segment/ProductCard";
 import SkeletonCard from "../../Product_segment/Product_Card_Skelleton/SkeletonCard";
 
 import {
@@ -29,7 +29,7 @@ const TAG_META = {
     subtitle:    "Best deals, handpicked for you",
     accentColor: "#F7A221",
   },
- "today-arrival": {
+  "today-arrival": {
     title:       "Today's Arrival",
     subtitle:    "Fresh drops, just in",
     accentColor: "#22C55E",
@@ -45,7 +45,124 @@ const getColumnCount = () => {
   return 1;
 };
 
-// ── VirtualizedProductGrid — exact same as CatProducts ───────────────────────
+// ── FilterPanel — OUTSIDE TagProducts to fix Rules of Hooks violation ─────────
+const FilterPanel = ({ filters, toggleFilter, clearFilters, activeFilterCount }) => (
+  <div className="space-y-7 font-['satoshi']">
+    {/* Price */}
+    <div>
+      <h4 className="text-[11px] font-bold uppercase tracking-[0.15em] text-zinc-800 mb-4">Price Range</h4>
+      <div className="space-y-1.5">
+        {[
+          { label: "Under ₹29", val: "u29"   },
+          { label: "₹29 - ₹49", val: "29-49" },
+          { label: "₹49 - ₹79", val: "49-79" },
+          { label: "Over ₹99",  val: "o99"   },
+        ].map(({ label, val }) => (
+          <label key={val} className="flex items-center gap-3 cursor-pointer group">
+            <div
+              className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-all ${
+                filters.price.includes(val) ? "bg-zinc-900 border-zinc-900" : "border-zinc-300 group-hover:border-zinc-500"
+              }`}
+              onClick={() => toggleFilter("price", val)}
+            >
+              {filters.price.includes(val) && (
+                <svg className="w-2.5 h-2.5 text-white" viewBox="0 0 10 8">
+                  <path d="M1 4l3 3 5-6" stroke="currentColor" strokeWidth="1.5"/>
+                </svg>
+              )}
+            </div>
+            <span
+              className={`text-sm ${filters.price.includes(val) ? "text-zinc-900 font-medium" : "text-zinc-800"}`}
+              onClick={() => toggleFilter("price", val)}
+            >
+              {label}
+            </span>
+          </label>
+        ))}
+      </div>
+    </div>
+
+    <div className="h-px bg-zinc-100" />
+
+    {/* Availability */}
+    <div>
+      <h4 className="text-[11px] font-bold uppercase tracking-[0.15em] text-zinc-800 mb-4">Availability</h4>
+      <div className="space-y-1.5">
+        {[
+          { label: "In stock",     val: "instock"    },
+          { label: "Out of stock", val: "outofstock" },
+        ].map(({ label, val }) => (
+          <label key={val} className="flex items-center gap-3 cursor-pointer group">
+            <div
+              className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-all ${
+                filters.availability.includes(val) ? "bg-zinc-900 border-zinc-900" : "border-zinc-300 group-hover:border-zinc-500"
+              }`}
+              onClick={() => toggleFilter("availability", val)}
+            >
+              {filters.availability.includes(val) && (
+                <svg className="w-2.5 h-2.5 text-white" viewBox="0 0 10 8" fill="none">
+                  <path d="M1 4l3 3 5-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              )}
+            </div>
+            <span
+              className={`text-sm transition-colors ${filters.availability.includes(val) ? "text-zinc-900 font-medium" : "text-zinc-800"}`}
+              onClick={() => toggleFilter("availability", val)}
+            >
+              {label}
+            </span>
+          </label>
+        ))}
+      </div>
+    </div>
+
+    <div className="h-px bg-zinc-100" />
+
+    {/* Discount */}
+    <div>
+      <h4 className="text-[11px] font-bold uppercase tracking-[0.15em] text-zinc-800 mb-4">Discount</h4>
+      <div className="space-y-1.5">
+        {[
+          { label: "10% or more", val: "10" },
+          { label: "25% or more", val: "25" },
+          { label: "50% or more", val: "50" },
+        ].map(({ label, val }) => (
+          <label key={val} className="flex items-center gap-3 cursor-pointer group">
+            <div
+              className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-all ${
+                filters.discount.includes(val) ? "bg-zinc-900 border-zinc-900" : "border-zinc-300 group-hover:border-zinc-500"
+              }`}
+              onClick={() => toggleFilter("discount", val)}
+            >
+              {filters.discount.includes(val) && (
+                <svg className="w-2.5 h-2.5 text-white" viewBox="0 0 10 8" fill="none">
+                  <path d="M1 4l3 3 5-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              )}
+            </div>
+            <span
+              className={`text-sm transition-colors ${filters.discount.includes(val) ? "text-zinc-900 font-medium" : "text-zinc-800"}`}
+              onClick={() => toggleFilter("discount", val)}
+            >
+              {label}
+            </span>
+          </label>
+        ))}
+      </div>
+    </div>
+
+    {activeFilterCount > 0 && (
+      <button
+        onClick={clearFilters}
+        className="w-full py-2.5 text-[11px] font-bold uppercase tracking-widest border border-zinc-200 text-zinc-500 hover:border-zinc-900 hover:text-zinc-900 transition-colors"
+      >
+        Clear all filters
+      </button>
+    )}
+  </div>
+);
+
+// ── VirtualizedProductGrid ────────────────────────────────────────────────────
 const VirtualizedProductGrid = ({ products, loadingMore }) => {
   const parentRef = useRef(null);
   const [cols, setCols] = useState(getColumnCount);
@@ -85,11 +202,19 @@ const VirtualizedProductGrid = ({ products, loadingMore }) => {
               key={virtualRow.key}
               data-index={virtualRow.index}
               ref={rowVirtualizer.measureElement}
-              style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${virtualRow.start}px)` }}
+              style={{
+                position:  "absolute",
+                top:       0,
+                left:      0,
+                width:     "100%",
+                transform: `translateY(${virtualRow.start}px)`,
+              }}
             >
               <div className="grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-4 gap-x-4 gap-y-10 md:gap-x-8 pb-10">
                 {isSkeletonRow
-                  ? Array(cols).fill(null).map((_, i) => <SkeletonCard key={`skel-${virtualRow.index}-${i}`} />)
+                  ? Array(cols).fill(null).map((_, i) => (
+                      <SkeletonCard key={`skel-${virtualRow.index}-${i}`} />
+                    ))
                   : rowItems.map((product, i) => (
                       <ProductCard
                         key={product._id || i}
@@ -110,47 +235,34 @@ const VirtualizedProductGrid = ({ products, loadingMore }) => {
 
 // ── TagProducts — Main Component ──────────────────────────────────────────────
 const TagProducts = (props) => {
-  // ✅ tag URL se aata hai: /on-sale → "on_sale", /today-arrival → "today_arrival"
- // REPLACE WITH:
-const { tag } = useParams();
-const rawTag = props?.tag || tag; // prop se ya URL se
-const normalizedTag = rawTag.replace("_", "-");
-  const dispatch  = useDispatch();
-  const navigate  = useNavigate();
+  const { tag } = useParams();
+  const rawTag        = props?.tag || tag;
+  const normalizedTag = rawTag.replace("_", "-");
 
-const meta = TAG_META[normalizedTag] || {
-  title: normalizedTag,
-  subtitle: "",
-  accentColor: "#F7A221",
-};
+  const dispatch = useDispatch();
+  const navigate = useNavigate();
+
+  const meta = TAG_META[normalizedTag] || {
+    title:       normalizedTag,
+    subtitle:    "",
+    accentColor: "#F7A221",
+  };
+
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [sortBy, setSortBy]             = useState("default");
-  const [isSortOpen, setIsSortOpen]     = useState(false);
-
-  const [filters, setFilters] = useState({
+  const [filters, setFilters]           = useState({
     price:        [],
     availability: [],
     discount:     [],
   });
 
   // ── Memoized selectors ────────────────────────────────────────────────────
-// ── Memoized selectors ────────────────────────────────────────────────────
-const selectProducts = useMemo(
-  () => selectProductsByTag(normalizedTag),
-  [normalizedTag]
-);
+  const selectProducts   = useMemo(() => selectProductsByTag(normalizedTag),   [normalizedTag]);
+  const selectLoading    = useMemo(() => selectLoadingByTag(normalizedTag),    [normalizedTag]);
+  const selectPagination = useMemo(() => selectPaginationByTag(normalizedTag), [normalizedTag]);
 
-const selectLoading = useMemo(
-  () => selectLoadingByTag(normalizedTag),
-  [normalizedTag]
-);
-
-const selectPagination = useMemo(
-  () => selectPaginationByTag(normalizedTag),
-  [normalizedTag]
-);
-
-console.log("selectProduct", selectProducts);
+  // ── fetchParams memoized — prevent new object reference every render ──────
+  const fetchParams = useMemo(() => ({ tag: normalizedTag }), [normalizedTag]);
 
   // ── Paginated fetch ───────────────────────────────────────────────────────
   const {
@@ -165,20 +277,29 @@ console.log("selectProduct", selectProducts);
     selectData:       selectProducts,
     selectLoading:    selectLoading,
     selectPagination: selectPagination,
-    fetchParams:      { tag: normalizedTag  },
-    limit:            8,
+    fetchParams,
+    limit: 4,
   });
 
-  // ── Cleanup on unmount ────────────────────────────────────────────────────
- useLayoutEffect(() => {
-  return () => dispatch(clearTagProducts(normalizedTag));
-}, [normalizedTag, dispatch]);
+  // ── Tag change: reset filters + scroll ───────────────────────────────────
+  useEffect(() => {
+    setFilters({ price: [], availability: [], discount: [] });
+    setSortBy("default");
+  }, [normalizedTag]);
 
-  // ── Filter logic — same as CatProducts ───────────────────────────────────
+  // ── Cleanup on unmount ────────────────────────────────────────────────────
+  useLayoutEffect(() => {
+    return () => dispatch(clearTagProducts(normalizedTag));
+  }, [normalizedTag, dispatch]);
+
+  // ── Filter logic ──────────────────────────────────────────────────────────
   const toggleFilter = useCallback((key, value) => {
     setFilters((prev) => {
       const exists = prev[key].includes(value);
-      return { ...prev, [key]: exists ? prev[key].filter((v) => v !== value) : [...prev[key], value] };
+      return {
+        ...prev,
+        [key]: exists ? prev[key].filter((v) => v !== value) : [...prev[key], value],
+      };
     });
   }, []);
 
@@ -229,7 +350,7 @@ console.log("selectProduct", selectProducts);
   }, [products, filters]);
 
   const sortedProducts = useMemo(() => {
-    let data = [...filteredProducts];
+    const data = [...filteredProducts];
     switch (sortBy) {
       case "priceLowHigh":
         return data.sort((a, b) => {
@@ -252,116 +373,18 @@ console.log("selectProduct", selectProducts);
           };
           return getDiscount(b) - getDiscount(a);
         });
-      case "az": return data.sort((a, b) => a.name.localeCompare(b.name));
-      case "za": return data.sort((a, b) => b.name.localeCompare(a.name));
+      case "az":     return data.sort((a, b) => a.name.localeCompare(b.name));
+      case "za":     return data.sort((a, b) => b.name.localeCompare(a.name));
       case "newest": return data.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-      default: return data;
+      default:       return data;
     }
   }, [filteredProducts, sortBy]);
 
-const error = useSelector(selectErrorByTag(normalizedTag));
-const hasError = !isLoading && !!error;  const hasMore  = pagination?.hasNextPage ?? false;
+  const error    = useSelector(selectErrorByTag(normalizedTag));
+  const hasError = !isLoading && !!error;
+  const hasMore  = pagination?.hasNextPage ?? false;
 
   const handleRetry = useCallback(() => resetPage(), [resetPage]);
-
-  // ── FilterPanel — same as CatProducts, minus onSale toggle ───────────────
-  const FilterPanel = () => (
-    <div className="space-y-7 font-['satoshi']">
-      {/* Price */}
-      <div>
-        <h4 className="text-[11px] font-bold uppercase tracking-[0.15em] text-zinc-800 mb-4">Price Range</h4>
-        <div className="space-y-1.5">
-          {[
-            { label: "Under ₹29", val: "u29" },
-            { label: "₹29 - ₹49", val: "29-49" },
-            { label: "₹49 - ₹79", val: "49-79" },
-            { label: "Over ₹99",  val: "o99"  },
-          ].map(({ label, val }) => (
-            <label key={val} className="flex items-center gap-3 cursor-pointer group">
-              <div
-                className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-all ${filters.price.includes(val) ? "bg-zinc-900 border-zinc-900" : "border-zinc-300 group-hover:border-zinc-500"}`}
-                onClick={() => toggleFilter("price", val)}
-              >
-                {filters.price.includes(val) && (
-                  <svg className="w-2.5 h-2.5 text-white" viewBox="0 0 10 8">
-                    <path d="M1 4l3 3 5-6" stroke="currentColor" strokeWidth="1.5"/>
-                  </svg>
-                )}
-              </div>
-              <span className={`text-sm ${filters.price.includes(val) ? "text-zinc-900 font-medium" : "text-zinc-800"}`} onClick={() => toggleFilter("price", val)}>
-                {label}
-              </span>
-            </label>
-          ))}
-        </div>
-      </div>
-
-      <div className="h-px bg-zinc-100" />
-
-      {/* Availability */}
-      <div>
-        <h4 className="text-[11px] font-bold uppercase tracking-[0.15em] text-zinc-800 mb-4">Availability</h4>
-        <div className="space-y-1.5">
-          {[
-            { label: "In stock",     val: "instock"    },
-            { label: "Out of stock", val: "outofstock" },
-          ].map(({ label, val }) => (
-            <label key={val} className="flex items-center gap-3 cursor-pointer group">
-              <div
-                className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-all ${filters.availability.includes(val) ? "bg-zinc-900 border-zinc-900" : "border-zinc-300 group-hover:border-zinc-500"}`}
-                onClick={() => toggleFilter("availability", val)}
-              >
-                {filters.availability.includes(val) && (
-                  <svg className="w-2.5 h-2.5 text-white" viewBox="0 0 10 8" fill="none">
-                    <path d="M1 4l3 3 5-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                )}
-              </div>
-              <span className={`text-sm transition-colors ${filters.availability.includes(val) ? "text-zinc-900 font-medium" : "text-zinc-800"}`} onClick={() => toggleFilter("availability", val)}>
-                {label}
-              </span>
-            </label>
-          ))}
-        </div>
-      </div>
-
-      <div className="h-px bg-zinc-100" />
-
-      {/* Discount */}
-      <div>
-        <h4 className="text-[11px] font-bold uppercase tracking-[0.15em] text-zinc-800 mb-4">Discount</h4>
-        <div className="space-y-1.5">
-          {[
-            { label: "10% or more", val: "10" },
-            { label: "25% or more", val: "25" },
-            { label: "50% or more", val: "50" },
-          ].map(({ label, val }) => (
-            <label key={val} className="flex items-center gap-3 cursor-pointer group">
-              <div
-                className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-all ${filters.discount.includes(val) ? "bg-zinc-900 border-zinc-900" : "border-zinc-300 group-hover:border-zinc-500"}`}
-                onClick={() => toggleFilter("discount", val)}
-              >
-                {filters.discount.includes(val) && (
-                  <svg className="w-2.5 h-2.5 text-white" viewBox="0 0 10 8" fill="none">
-                    <path d="M1 4l3 3 5-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                )}
-              </div>
-              <span className={`text-sm transition-colors ${filters.discount.includes(val) ? "text-zinc-900 font-medium" : "text-zinc-800"}`} onClick={() => toggleFilter("discount", val)}>
-                {label}
-              </span>
-            </label>
-          ))}
-        </div>
-      </div>
-
-      {activeFilterCount > 0 && (
-        <button onClick={clearFilters} className="w-full py-2.5 text-[11px] font-bold uppercase tracking-widest border border-zinc-200 text-zinc-500 hover:border-zinc-900 hover:text-zinc-900 transition-colors">
-          Clear all filters
-        </button>
-      )}
-    </div>
-  );
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -431,10 +454,17 @@ const hasError = !isLoading && !!error;  const hasMore  = pagination?.hasNextPag
                 <span className="text-sm font-bold uppercase tracking-widest">Filters</span>
               </div>
               {activeFilterCount > 0 && (
-                <span className="text-[10px] font-bold bg-zinc-900 text-white px-2 py-0.5 rounded-full">{activeFilterCount}</span>
+                <span className="text-[10px] font-bold bg-zinc-900 text-white px-2 py-0.5 rounded-full">
+                  {activeFilterCount}
+                </span>
               )}
             </div>
-            <FilterPanel />
+            <FilterPanel
+              filters={filters}
+              toggleFilter={toggleFilter}
+              clearFilters={clearFilters}
+              activeFilterCount={activeFilterCount}
+            />
           </div>
         </aside>
 
@@ -450,6 +480,7 @@ const hasError = !isLoading && !!error;  const hasMore  = pagination?.hasNextPag
                   onChange={(e) => setSortBy(e.target.value)}
                   className="appearance-none bg-white/60 backdrop-blur-md px-3 pr-10 py-2 text-sm font-semibold text-zinc-800 rounded-md shadow-sm border border-zinc-200 hover:border-zinc-400 focus:border-black focus:ring-0 outline-none transition-all cursor-pointer"
                 >
+                  <option value="default">Default</option>
                   <option value="az">Alphabetically, A-Z</option>
                   <option value="za">Alphabetically, Z-A</option>
                   <option value="priceLowHigh">Price: Low to High</option>
@@ -476,14 +507,17 @@ const hasError = !isLoading && !!error;  const hasMore  = pagination?.hasNextPag
                   <AlertCircle size={28} className="text-red-400" />
                 </div>
                 <p className="text-zinc-600 text-sm mb-6 max-w-sm">Something went wrong while loading products.</p>
-                <button onClick={handleRetry} className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider px-5 py-2 border border-zinc-300 rounded-full hover:bg-black hover:text-white transition-all">
+                <button
+                  onClick={handleRetry}
+                  className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider px-5 py-2 border border-zinc-300 rounded-full hover:bg-black hover:text-white transition-all"
+                >
                   <RefreshCw size={14} /> Retry
                 </button>
               </div>
             )}
 
-            {/* LOADING */}
-            {isLoading && products.length === 0 && (
+            {/* INITIAL LOADING */}
+            {isLoading && (!products || products.length === 0) && (
               <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                 {[...Array(8)].map((_, i) => (
                   <div key={i} className="animate-pulse space-y-3">
@@ -496,7 +530,7 @@ const hasError = !isLoading && !!error;  const hasMore  = pagination?.hasNextPag
             )}
 
             {/* MAIN GRID */}
-            {!isLoading && !hasError && filteredProducts.length > 0 && (
+            {!isLoading && !hasError && sortedProducts.length > 0 && (
               <div className="animate-in fade-in duration-700">
                 <VirtualizedProductGrid products={sortedProducts} loadingMore={loadingMore} />
 
@@ -507,7 +541,7 @@ const hasError = !isLoading && !!error;  const hasMore  = pagination?.hasNextPag
                       <button
                         onClick={handleLoadMore}
                         disabled={loadingMore}
-                        className="group relative px-10 py-3 rounded-full hover:bg-orange-400 duration-300 bg-zinc-800 text-zinc-100 overflow-hidden transition-all"
+                        className="group relative px-10 py-3 rounded-full hover:bg-orange-400 duration-300 bg-zinc-800 text-zinc-100 overflow-hidden transition-all disabled:opacity-60"
                       >
                         <span className="relative z-10 flex items-center gap-2 text-xs font-semibold uppercase tracking-widest">
                           {loadingMore ? <Loader2 size={14} className="animate-spin" /> : "Load More"}
@@ -524,12 +558,15 @@ const hasError = !isLoading && !!error;  const hasMore  = pagination?.hasNextPag
               </div>
             )}
 
-            {/* EMPTY */}
-            {!isLoading && !hasError && filteredProducts.length === 0 && products.length > 0 && (
+            {/* EMPTY — filters ne sab hataya */}
+            {!isLoading && !hasError && sortedProducts.length === 0 && products?.length > 0 && (
               <div className="py-32 flex flex-col items-center text-center">
                 <h2 className="text-xl font-semibold text-zinc-700 mb-2">No products found</h2>
                 <p className="text-zinc-400 text-xs uppercase tracking-widest mb-6">Try different filters</p>
-                <button onClick={clearFilters} className="px-6 py-2 text-xs font-semibold uppercase tracking-wider border border-zinc-300 rounded-full hover:bg-black hover:text-white transition">
+                <button
+                  onClick={clearFilters}
+                  className="px-6 py-2 text-xs font-semibold uppercase tracking-wider border border-zinc-300 rounded-full hover:bg-black hover:text-white transition"
+                >
                   Reset Filters
                 </button>
               </div>
@@ -541,22 +578,35 @@ const hasError = !isLoading && !!error;  const hasMore  = pagination?.hasNextPag
       {/* MOBILE FILTER DRAWER */}
       {isFilterOpen && (
         <div className="fixed inset-0 z-[100] md:hidden">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setIsFilterOpen(false)} />
+          <div
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            onClick={() => setIsFilterOpen(false)}
+          />
           <div className="absolute bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-2xl animate-in slide-in-from-bottom duration-300 flex flex-col max-h-[85vh]">
             <div className="flex items-center justify-between px-6 py-5 border-b border-zinc-100">
               <div className="flex items-center gap-2">
                 <h3 className="text-base font-bold uppercase tracking-tighter">Filters</h3>
                 {activeFilterCount > 0 && (
-                  <span className="text-[10px] font-bold bg-zinc-900 text-white px-2 py-0.5 rounded-full">{activeFilterCount}</span>
+                  <span className="text-[10px] font-bold bg-zinc-900 text-white px-2 py-0.5 rounded-full">
+                    {activeFilterCount}
+                  </span>
                 )}
               </div>
               <button onClick={() => setIsFilterOpen(false)}><X size={22} /></button>
             </div>
             <div className="flex-1 overflow-y-auto px-6 py-4">
-              <FilterPanel />
+              <FilterPanel
+                filters={filters}
+                toggleFilter={toggleFilter}
+                clearFilters={clearFilters}
+                activeFilterCount={activeFilterCount}
+              />
             </div>
             <div className="px-6 py-4 border-t border-zinc-100">
-              <button onClick={() => setIsFilterOpen(false)} className="w-full bg-zinc-900 text-white py-4 text-xs font-black uppercase tracking-widest">
+              <button
+                onClick={() => setIsFilterOpen(false)}
+                className="w-full bg-zinc-900 text-white py-4 text-xs font-black uppercase tracking-widest"
+              >
                 Show {filteredProducts.length} products
               </button>
             </div>

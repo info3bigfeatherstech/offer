@@ -12,6 +12,8 @@ import axiosInstance from "../../../../SERVICES/axiosInstance";
 export const fetchCheckoutQuote = createAsyncThunk(
   "checkout/fetchQuote",
   async ({ addressId, couponCode, paymentMethodHint, demoMockShipping = false }, { rejectWithValue }) => {
+    console.log("addressId", addressId, "couponCode", couponCode, "paymentMethodHint", paymentMethodHint, "demoMockShipping", demoMockShipping);
+    
     try {
       const res = await axiosInstance.post("/checkout/quote", {
         addressId,

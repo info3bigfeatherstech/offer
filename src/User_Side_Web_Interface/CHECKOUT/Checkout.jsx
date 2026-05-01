@@ -744,20 +744,38 @@ const Checkout = () => {
     }
   };
 
-  const handleRazorpayFailure = (errorMsg) => {
-    setShowRazorpay(false);
-    setRazorpayPaymentState(PAYMENT_STATE.FAILED);
-    setPaymentError(errorMsg || "Payment failed. Please try again.");
-    setShowPaymentErrorModal(true);
-  };
+ const handleRazorpayFailure = (error) => {
+  // Close the Razorpay modal
+  setShowRazorpay(false);
+  setRazorpayPaymentState(PAYMENT_STATE.FAILED);
 
-  const handleRazorpayClose = () => {
-    // Only called when state was "initiated" (user cancelled) — from state machine
-    setShowRazorpay(false);
-    setRazorpayPaymentState(PAYMENT_STATE.CANCELLED);
-    toast.info("Payment cancelled. Choose COD or try again.", { theme: "dark" });
-    // Stay on Step 2 — do NOT reset checkout
-  };
+  // Clean up any lingering DOM elements from Razorpay
+  document.querySelector(".razorpay-container")?.remove();
+  document.querySelector(".razorpay-backdrop")?.remove();
+
+  // Show a toast or modal
+  const msg = error?.error?.description || "Payment failed. Please try again.";
+  setPaymentError(msg);
+  setShowPaymentErrorModal(true);
+
+  toast.error(msg, { theme: "dark" });
+
+  // Optionally, reset checkout state or let user retry
+  checkoutAttemptKeyRef.current = null;
+};
+
+ const handleRazorpayClose = () => {
+  setShowRazorpay(false);
+  setRazorpayPaymentState(PAYMENT_STATE.CANCELLED);
+  
+  // Remove any lingering Razorpay DOM elements
+  document.querySelector(".razorpay-container")?.remove();
+  document.querySelector(".razorpay-backdrop")?.remove();
+  
+  toast.info("Payment cancelled. Choose COD or try again.", { theme: "dark" });
+  navigate("/account/userorders");
+  setTimeout(() => dispatch(resetCheckout()), 100);
+};
 
   const handleRetryPayment = () => {
     setShowPaymentErrorModal(false);

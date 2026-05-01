@@ -20,6 +20,7 @@ import homeIcon from "../../assets/home (2).png";
 import Coupon from "../../assets/Tickets.gif";
 import Contact from "../../assets/Contact.gif";
 import SaleIcon from "../../assets/Shopping bag.gif";
+import audio from "../../assets/headphone.png";
 import deal from "../../assets/Discount.gif";
 import arrivals from "../../assets/Product (5).gif";
 import justarrivedIcon from "../../assets/just-arrived (1).png";
@@ -411,11 +412,6 @@ const Navbar = ({ searchQuery, setSearchQuery, isMenuOpen, setIsMenuOpen, isLogg
       path: "/coupons",
       icon: <ImageIcon src={Coupon} alt="Coupons" animation="animate-bounce-soft" />
     },
-     {
-      label: "Contact Us",
-      path: "/contact",
-      icon: <ImageIcon src={Contact} alt="Contact Us" animation="animate-bounce-soft" />
-    },
   ];
 
   const mobileCategories = [
@@ -655,7 +651,8 @@ const Navbar = ({ searchQuery, setSearchQuery, isMenuOpen, setIsMenuOpen, isLogg
                 link={{ label: "All Categories", path: "/products", icon: <ImageIcon src={homeIcon} alt="Home" animation="animate-bounce-soft" /> }}
               />
               <div className="h-6 w-[1px] bg-white/20 mx-2"></div>
-              {bottomNavLinks.map((link, idx) => (
+              <div className='flex relative items-center'>
+                 {bottomNavLinks.map((link, idx) => (
                 <Link
                   key={idx}
                   to={link.path}
@@ -667,6 +664,41 @@ const Navbar = ({ searchQuery, setSearchQuery, isMenuOpen, setIsMenuOpen, isLogg
                   <span className="font-bold text-black text-md md:text-[0.65rem] relative z-10">{link.label}</span>
                 </Link>
               ))}
+              <div className='w-fit h-fit p-2 absolute -right-80 rounded-lg'>
+              <Link
+  to="/contact"
+  className="group relative flex items-center gap-3 px-4 py-3 rounded-2xl overflow-hidden transition-all duration-300 hover:bg-white/10"
+>
+  {/* Animated background glow on hover */}
+  <span className="absolute inset-0 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-gradient-to-r from-white/5 to-white/10 blur-sm" />
+
+  {/* Icon container with bounce + scale on hover */}
+  <div className="relative z-10 flex-shrink-0 w-10 h-10 flex items-center justify-center rounded-xl bg-white/5 group-hover:bg-white/10 transition-all duration-300 group-hover:scale-110 group-hover:-rotate-6">
+    <ImageIcon
+      className="w-5 h-5 object-cover text-zinc-300 group-hover:text-white transition-colors duration-300"
+      src={audio}
+      alt="Contact"
+    />
+  </div>
+
+  {/* Label */}
+  <span className="relative z-10 font-semibold text-zinc-400 group-hover:text-yellow-500 text-sm tracking-wide transition-colors duration-300 whitespace-nowrap">
+    Contact us
+  </span>
+
+  {/* Subtle right-arrow nudge on hover */}
+  <svg
+    className="relative z-10 w-3.5 h-3.5 text-zinc-600 group-hover:text-zinc-300 group-hover:translate-x-1 transition-all duration-300 ml-auto"
+    fill="none"
+    viewBox="0 0 24 24"
+    stroke="currentColor"
+    strokeWidth={2.5}
+  >
+    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+  </svg>
+</Link>
+              </div>
+              </div>
             </div>
           </div>
         </nav>
